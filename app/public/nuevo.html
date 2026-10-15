@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Biblioteca — Nuevo</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="ventana">
+  <div class="encabezado"><span>Biblioteca — Nuevo registro (requiere login)</span><nav><a href="/">Buscar</a></nav></div>
+  <div class="detalle">
+    <div id="aviso" class="aviso" hidden></div>
+    <div id="form"></div>
+    <div class="pie"><button id="crear" type="button">Crear</button><a class="btn" href="/">Cancelar</a></div>
+  </div>
+</div>
+<script type="module">
+import { api, construirFormulario, mostrarAviso } from "/app.js";
+
+const recoger = construirFormulario(document.getElementById("form"));
+document.getElementById("crear").addEventListener("click", async () => {
+  try {
+    const r = await api("/api/libros", { method: "POST", body: JSON.stringify(recoger()) });
+    location.href = "/libro.html?id=" + encodeURIComponent(r.id);
+  } catch (e) {
+    mostrarAviso("aviso", e.status === 401
+      ? "Para crear debes iniciar sesión (Cloudflare Access)."
+      : e.message, true);
+  }
+});
+</script>
+</body>
+</html>

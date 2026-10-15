@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Biblioteca — Entrar</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="ventana">
+  <div class="encabezado"><span>Biblioteca — Entrar</span><nav><a href="/">Buscar</a></nav></div>
+  <div class="detalle">
+    <div id="aviso" class="aviso" hidden></div>
+    <form id="login">
+      <div class="fila"><span>Email</span><input type="email" name="email" required autocomplete="username"></div>
+      <div class="fila"><span>Contraseña</span><input type="password" name="password" required autocomplete="current-password"></div>
+      <div class="pie"><button type="submit">Entrar</button></div>
+    </form>
+  </div>
+</div>
+<script type="module">
+import { mostrarAviso } from "/app.js";
+
+const next = new URLSearchParams(location.search).get("next") || "/";
+document.getElementById("login").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const datos = Object.fromEntries(new FormData(e.target));
+  const r = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(datos),
+  });
+  if (r.ok) {
+    location.href = next.startsWith("/") ? next : "/";
+  } else {
+    const cuerpo = await r.json().catch(() => ({}));
+    mostrarAviso("aviso", cuerpo.mensaje || "No se pudo entrar.", true);
+  }
+});
+</script>
+</body>
+</html>

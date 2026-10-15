@@ -1,0 +1,26 @@
+:root { --gris: #d4d0c8; --borde: #808080; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #7a7a7a; font-family: "Segoe UI", Tahoma, Arial, sans-serif; font-size: 13px; }
+.ventana { max-width: 720px; margin: 24px auto; background: var(--gris); border: 2px ridge #fff; padding: 6px; }
+.encabezado { background: var(--gris); border: 1px solid var(--borde); padding: 4px 8px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+.encabezado nav a { margin-left: 10px; }
+.detalle { background: #fff; border: 1px solid var(--borde); padding: 10px; }
+.fila { display: grid; grid-template-columns: 150px 1fr; gap: 8px; align-items: start; margin-bottom: 4px; }
+.fila > span:first-child { text-align: right; padding-top: 3px; color: #000; }
+.fila input, .fila textarea, .fila select { width: 100%; font: inherit; padding: 2px 4px; border: 1px solid #7f9db9; background: #fff; }
+.fila input[readonly] { background: var(--gris); color: #444; }
+.pie { margin-top: 8px; border: 1px solid var(--borde); padding: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+button, .btn { font: inherit; padding: 2px 10px; background: var(--gris); border: 1px outset #fff; cursor: pointer; color: #000; text-decoration: none; display: inline-block; }
+button:active, .btn:active { border-style: inset; }
+button.peligro { color: #a00; }
+table.resultados { width: 100%; border-collapse: collapse; background: #fff; }
+table.resultados th, table.resultados td { border: 1px solid var(--borde); padding: 3px 6px; text-align: left; vertical-align: top; }
+table.resultados th { background: var(--gris); }
+mark { background: #ffeb3b; }
+.aviso { background: #fff3cd; border: 1px solid #d9a400; padding: 4px 8px; margin-bottom: 8px; }
+.error { background: #f8d7da; border: 1px solid #c00; padding: 4px 8px; margin-bottom: 8px; }
+.buscador { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.buscador input[type="search"] { flex: 1; min-width: 200px; font: inherit; padding: 2px 4px; }
+.campos-fts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 8px; }
+.dl dt { font-weight: bold; margin-top: 6px; }
+.dl dd { margin: 0 0 4px 0; white-space: pre-wrap; }

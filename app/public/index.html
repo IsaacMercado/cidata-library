@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Biblioteca — Buscar</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="ventana">
+  <div class="encabezado"><span>Biblioteca</span><nav><span id="sesion"></span> <a href="/">Buscar</a><a href="/nuevo.html">Nuevo registro</a></nav></div>
+  <div class="detalle">
+    <div id="aviso" class="aviso" hidden></div>
+    <form id="buscador" class="buscador">
+      <input type="search" id="q" placeholder="Buscar en texto (tildes opcionales)…" autocomplete="off">
+      <select id="modo" title="Modo de búsqueda">
+        <option value="simple">Simple</option>
+        <option value="avanzado">Avanzada (FTS5)</option>
+      </select>
+      <select id="orden" title="Orden">
+        <option value="id">Por ID</option>
+        <option value="titulo">Por título</option>
+        <option value="autor">Por autor</option>
+      </select>
+      <button type="submit">Buscar</button>
+    </form>
+    <div class="campos-fts" id="camposFts" title="Limitar la búsqueda a estos campos"></div>
+    <div id="info"></div>
+    <table class="resultados">
+      <thead><tr><th>ID</th><th>Título</th><th>Autor</th><th>Tema o Materia</th></tr></thead>
+      <tbody id="filas"></tbody>
+    </table>
+    <div class="pie">
+      <button id="ant" type="button">◀ Anterior</button>
+      <span id="pos"></span>
+      <button id="sig" type="button">Siguiente ▶</button>
+    </div>
+  </div>
+</div>
+<script type="module">
+import { actualizarSesion, api, esc, mostrarAviso } from "/app.js";
+
+let meta = null, page = 1, pages = 1;
+const $ = (id) => document.getElementById(id);
+
+async function init() {
+  actualizarSesion();
+  meta = await api("/api/meta");
+  const cont = $("camposFts");
+  for (const col of meta.ftsColumnas) {
+    const lab = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.value = col; cb.checked = true;
+    lab.append(cb, " " + col);
+    cont.appendChild(lab);
+  }
+  $("buscador").addEventListener("submit", (e) => { e.preventDefault(); page = 1; buscar(); });
+  $("ant").addEventListener("click", () => { if (page > 1) { page--; buscar(); } });
+  $("sig").addEventListener("click", () => { if (page < pages) { page++; buscar(); } });
+  buscar();
+}
+
+async function buscar() {
+  const params = new URLSearchParams({
+    q: $("q").value.trim(),
+    modo: $("modo").value,
+    orden: $("orden").value,
+    page: String(page),
+    limit: "25",
+  });
+  const sel = [...document.querySelectorAll("#camposFts input:checked")].map((c) => c.value);
+  if (sel.length !== meta.ftsColumnas.length) params.set("campos", sel.join(","));
+  try {
+    const r = await api("/api/libros?" + params);
+    pages = r.pages || 1;
+    $("info").textContent = `${r.total} resultado(s). Búsqueda FTS5 insensible a tildes; modo avanzado admite frases "…", AND/OR/NOT y term*.`;
+    $("filas").innerHTML = r.items.map((f) =>
+      `<tr><td>${esc(f.id)}</td><td><a href="/libro.html?id=${esc(f.id)}">${esc(f.titulo)}</a>` +
+      (f.fragmento ? `<br><small>${f.fragmento}</small>` : "") +
+      `</td><td>${esc(f.autor)}</td><td>${esc(f.temaOMateria)}</td></tr>`
+    ).join("");
+    $("pos").textContent = `Página ${r.page} de ${pages}`;
+  } catch (e) {
+    mostrarAviso("aviso", e.message, true);
+  }
+}
+
+init();
+</script>
+</body>
+</html>

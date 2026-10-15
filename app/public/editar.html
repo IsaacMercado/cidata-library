@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Biblioteca — Editar</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="ventana">
+  <div class="encabezado"><span>Biblioteca — Editar (requiere login)</span><nav><a href="/">Buscar</a></nav></div>
+  <div class="detalle">
+    <div id="aviso" class="aviso" hidden></div>
+    <div id="form"></div>
+    <div class="pie"><button id="guardar" type="button">Guardar</button><a class="btn" id="volver" href="#">Cancelar</a></div>
+  </div>
+</div>
+<script type="module">
+import { api, construirFormulario, mostrarAviso } from "/app.js";
+
+const id = new URLSearchParams(location.search).get("id");
+document.getElementById("volver").href = "/libro.html?id=" + encodeURIComponent(id);
+
+async function init() {
+  let recoger;
+  try {
+    const f = await api("/api/libros/" + encodeURIComponent(id));
+    recoger = construirFormulario(document.getElementById("form"), f);
+  } catch (e) {
+    mostrarAviso("aviso", e.message, true);
+    return;
+  }
+  document.getElementById("guardar").addEventListener("click", async () => {
+    try {
+      await api("/api/libros/" + encodeURIComponent(id), {
+        method: "PUT",
+        body: JSON.stringify(recoger()),
+      });
+      location.href = "/libro.html?id=" + encodeURIComponent(id);
+    } catch (e) {
+      mostrarAviso("aviso", e.status === 401
+        ? "Para guardar debes iniciar sesión (Cloudflare Access)."
+        : e.message, true);
+    }
+  });
+}
+
+init();
+</script>
+</body>
+</html>

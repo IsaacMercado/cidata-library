@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Biblioteca — Ficha</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="ventana">
+  <div class="encabezado"><span>Biblioteca — Ficha</span><nav><span id="sesion"></span> <a href="/">Buscar</a><a href="/nuevo.html">Nuevo registro</a></nav></div>
+  <div class="detalle">
+    <div id="aviso" class="aviso" hidden></div>
+    <dl class="dl" id="ficha"></dl>
+    <div class="pie">
+      <a class="btn" id="editar" href="#">Editar (requiere login)</a>
+      <button class="peligro" id="eliminar" type="button">Eliminar (requiere login)</button>
+    </div>
+  </div>
+</div>
+<script type="module">
+import { actualizarSesion, CAMPOS, api, esc, mostrarAviso } from "/app.js";
+
+const id = new URLSearchParams(location.search).get("id");
+const $ = (x) => document.getElementById(x);
+
+async function init() {
+  actualizarSesion();
+  $("editar").href = "/editar.html?id=" + encodeURIComponent(id);
+  try {
+    const f = await api("/api/libros/" + encodeURIComponent(id));
+    $("ficha").innerHTML = CAMPOS.map((c) =>
+      `<dt>${esc(c.etiqueta)}</dt><dd>${esc(f[c.clave])}</dd>`).join("");
+  } catch (e) {
+    mostrarAviso("aviso", e.message, true);
+  }
+  $("eliminar").addEventListener("click", async () => {
+    if (!confirm(`¿Eliminar el registro ${id}?`)) return;
+    try {
+      await api("/api/libros/" + encodeURIComponent(id), { method: "DELETE" });
+      location.href = "/";
+    } catch (e) {
+      mostrarAviso("aviso", e.status === 401
+        ? "Para eliminar debes iniciar sesión (Cloudflare Access)."
+        : e.message, true);
+    }
+  });
+}
+
+init();
+</script>
+</body>
+</html>
