@@ -15,6 +15,7 @@
     "dev": "npm run dev -w @biblioteca/web",
     "deploy": "npm run deploy -w @biblioteca/web",
     "deploy:dry": "npm run deploy:dry -w @biblioteca/web",
+    "build": "npm run check",
     "check": "npm run check -w @biblioteca/web",
     "test": "npm run test -w @biblioteca/web",
     "cf-typegen": "npm run cf-typegen -w @biblioteca/web",
