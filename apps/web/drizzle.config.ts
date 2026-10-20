@@ -1,7 +1,7 @@
 import { defineConfig } from "drizzle-kit";
 
-// Drizzle genera SQL en ./migrations, el mismo directorio que usa
-// `wrangler d1 migrations apply` (convención oficial de Cloudflare).
+// Drizzle writes SQL to ./migrations, the same directory used by
+// `wrangler d1 migrations apply` (Cloudflare's official convention).
 export default defineConfig({
   dialect: "sqlite",
   schema: "./src/db/schema.ts",

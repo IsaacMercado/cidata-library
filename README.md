@@ -26,7 +26,7 @@ Catálogo de biblioteca migrado desde Microsoft Access y desplegado en
 ├── tools/
 │   ├── etl/                    # Proyecto Python/uv: Access -> SQLite -> D1
 │   │   └── src/biblioteca/
-│   └── crear_usuario.mjs       # Genera SQL para el usuario administrador
+│   └── create_user.mjs         # Genera SQL para el usuario administrador
 ├── data/                       # Datos locales (IGNORADO por git)
 │   ├── biblioteca.accdb
 │   └── derived/                # CSV, SQLite, seed.sql, admin.sql
@@ -130,41 +130,74 @@ Para subir por API HTTP (servidores/CI) en lugar de Wrangler:
 export CLOUDFLARE_API_TOKEN=...
 export CLOUDFLARE_ACCOUNT_ID=...
 export D1_DATABASE_ID=...   # database_id de apps/web/wrangler.jsonc
-npm run data:upload -- --remote --via api
+npm run data:upload -- --remote --method api
 ```
 
 Más detalles en [`tools/etl/README.md`](tools/etl/README.md).
 
 ## Despliegue en Cloudflare
 
-### Migraciones y primer despliegue manual
+> **Importante:** este proyecto es un **Worker** con assets estáticos y D1, no
+> un sitio de Cloudflare Pages. Si conectaste el repositorio desde
+> **Workers & Pages → Pages**, el build fallará (o desplegará solo los assets
+> sin la API). Elimina ese proyecto de Pages. La integración nativa de
+> Cloudflare para Git es **Workers Builds**, no Pages.
+>
+> El error `EBADPLATFORM` de `@esbuild/aix-ppc64` era un problema del
+> `package-lock.json` (paquetes opcionales de esbuild mal marcados). Ya está
+> corregido: el lockfile se regeneró con `vite@6.4.4` y `npm ci` funciona con
+> npm 10.9.2. Aun así, Pages no puede ejecutar este Worker con D1; el problema
+> de fondo es el producto elegido.
+>
+> `apps/web/wrangler.jsonc` ya contiene el `database_id` de la base D1. Si
+> creas otra base, actualiza ese valor.
+
+### Despliegue directo desde tu máquina (lo más simple)
+
+No necesitas GitHub Actions ni Pages. `wrangler` empaqueta y sube el Worker
+directamente:
 
 ```sh
+npx wrangler login
 npm run db:migrate:remote
 npm run data:upload -- --remote
 npm run deploy
 ```
 
+`npm run deploy` ejecuta `wrangler deploy` dentro de `apps/web` y usa el
+`database_id` de `apps/web/wrangler.jsonc`.
+
 Aplica el usuario administrador remoto:
 
 ```sh
+npm run db:admin -- tu@email.com
 cd apps/web
 npx wrangler d1 execute biblioteca --remote --file=../../data/derived/admin.sql
 ```
 
-### Despliegue automático con GitHub Actions
+### Despliegue automático desde Git con Cloudflare Workers Builds
 
-El workflow `.github/workflows/deploy.yml` se ejecuta al hacer push a `main`
-(o manualmente desde **Actions → Deploy production**):
+Si quieres que Cloudflare despliegue al hacer push, usa **Workers Builds**.
+Es la integración nativa de Cloudflare (no Pages):
 
-1. `npm ci`
-2. typecheck + bundle de prueba
-3. tests
-4. `wrangler d1 migrations apply biblioteca --remote`
-5. `wrangler deploy`
+1. **Workers & Pages → Create → Workers → Connect to Git**.
+2. Selecciona el repositorio.
+3. Build command: `npm ci`
+4. Deploy command: `npm run db:migrate:remote && npm run deploy`
+5. No uses un proyecto de Pages.
 
-Configura estos **secrets** en el repositorio
-(**Settings → Secrets and variables → Actions**):
+También puedes dejar solo `npm run deploy` como deploy command y ejecutar las
+migraciones manualmente la primera vez.
+
+### GitHub Actions (opcional)
+
+El workflow `.github/workflows/deploy.yml` existe como alternativa de CI/CD,
+pero **no es necesario** y no es la ruta recomendada. Está configurado solo
+para ejecución manual (`workflow_dispatch`), así que no se dispara en cada
+push. Si no lo quieres, se puede eliminar sin afectar al despliegue directo ni
+a Workers Builds.
+
+Si lo usas, configura estos secrets en GitHub:
 
 | Secret | Valor |
 | --- | --- |
@@ -172,11 +205,9 @@ Configura estos **secrets** en el repositorio
 | `CLOUDFLARE_ACCOUNT_ID` | ID de la cuenta de Cloudflare |
 
 El token se crea en **My Profile → API Tokens**. La plantilla
-“Edit Cloudflare Workers” sirve; añade **D1:Edit** si no lo incluye.
-
-El job usa el environment `production` de GitHub. Puedes añadir reglas de
-protección (aprobación manual) en **Settings → Environments** sin cambiar el
-workflow.
+“Edit Cloudflare Workers” sirve; añade **D1:Edit** si no lo incluye. El job usa
+el environment `production` de GitHub; puedes añadir aprobación manual en
+**Settings → Environments**.
 
 `.github/workflows/ci.yml` ejecuta typecheck, tests y lint de Python en cada
 push y pull request. No despliega desde PRs.
@@ -223,13 +254,67 @@ base). Para un entorno local puedes borrar
 
 ## Seguridad
 
-- Las contraseñas se guardan como `pbkdf2$iteraciones$sal$hash`
-  (PBKDF2-SHA256, 10.000 iteraciones, pensado para el límite de CPU del plan
-  gratuito). Ajusta `PBKDF2_ITER` en `apps/web/src/auth.ts` y en
-  `tools/crear_usuario.mjs` si cambias de plan.
-- Las sesiones guardan solo el SHA-256 del token; la cookie es `httpOnly`,
-  `SameSite=Lax` y `Secure` en HTTPS.
+### Sesiones: no hay `secret_key`
+
+Este proyecto **no usa cookies firmadas ni JWT**. Usa sesiones opacas del lado
+del servidor, así que no necesita una clave secreta para firmar la cookie:
+
+1. En el login (`apps/web/src/auth.ts`) se generan 32 bytes aleatorios con
+   `crypto.getRandomValues` (256 bits).
+2. El token en claro va en la cookie `httpOnly`; en D1 se guarda únicamente su
+   SHA-256 (`sesiones.token`).
+3. En cada petición se hashea el token de la cookie y se busca esa fila en D1.
+   Si existe, no ha expirado y el usuario existe, la sesión es válida.
+4. El logout borra la fila; también se puede revocar una sesión borrando su
+   fila en D1.
+
+No hay firma que verificar, por eso no hay `SESSION_SECRET`. La autoridad es la
+fila de D1, no la integridad criptográfica de la cookie. Ventajas: el token no
+se guarda en claro y las sesiones se pueden revocar. Si en el futuro se
+quisiera una sesión *stateless* firmada (por ejemplo JWT), sí habría que crear
+un secreto con `npx wrangler secret put SESSION_SECRET`; ese sería otro diseño,
+con revocación más difícil.
+
+La cookie se llama `biblio_session` en HTTP local y
+`__Host-biblio_session` en producción HTTPS. `__Host-` exige `Secure`, `Path=/`
+y ningún atributo `Domain`; además se usa `HttpOnly` y `SameSite=Lax`.
+
+### CSRF y escritura
+
+- Las rutas de escritura (`POST`, `PUT`, `DELETE`) exigen sesión válida.
+- Un middleware en `apps/web/src/index.ts` rechaza peticiones con `Origin` de
+  otro sitio y con `Sec-Fetch-Site` distinto de `same-origin`/`none`.
+- La API espera `Content-Type: application/json`; un formulario cross-site
+  simple no puede enviar JSON sin pasar por un preflight CORS que el Worker no
+  autoriza.
+- `SameSite=Lax` evita el envío normal de la cookie en peticiones cross-site.
+- Las páginas `/editar` y `/nuevo` (y sus `.html`) están protegidas en el
+  Worker; no las quites de `run_worker_first` en `wrangler.jsonc`.
+
+### Contraseñas
+
+- Se guardan como `pbkdf2$iteraciones$sal$hash` (PBKDF2-SHA256, 10.000
+  iteraciones). El login ejecuta PBKDF2 incluso si el email no existe, para no
+  filtrar qué cuentas existen por diferencias de tiempo.
+- 10.000 iteraciones es un compromiso con el límite de CPU del plan gratuito
+  de Workers (10 ms por petición). Si pasas a un plan de pago, sube
+  `PBKDF2_ITERATIONS` en `apps/web/src/auth.ts` y en
+  `tools/create_user.mjs` a la vez, y regenera los hashes existentes.
+- El login no tiene rate limiting propio. Para producción se recomienda añadir
+  Cloudflare Rate Limiting/WAF o Turnstile, o poner la aplicación detrás de
+  Cloudflare Access si solo la usa el personal de la biblioteca.
 - `data/derived/admin.sql` contiene un hash de contraseña: no lo compartas ni
   lo versiones (ya está ignorado).
-- Las rutas `/editar` y `/nuevo` (y sus `.html`) están protegidas por el
-  Worker; no las quites de `run_worker_first` en `wrangler.jsonc`.
+
+### Secretos de despliegue
+
+Los únicos secretos son los de la cuenta de Cloudflare para CI:
+
+| Secret | Uso |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Workers Scripts:Edit + D1:Edit |
+| `CLOUDFLARE_ACCOUNT_ID` | ID de la cuenta |
+
+Se configuran en GitHub (**Settings → Secrets and variables → Actions**), no
+en el código. No hay ningún `SESSION_SECRET` que configurar con el diseño
+actual.

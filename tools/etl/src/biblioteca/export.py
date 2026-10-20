@@ -1,13 +1,13 @@
-"""Exporta la base de datos Microsoft Access a formatos portables.
+"""Export the Microsoft Access database to portable formats.
 
-Genera, en `data/derived/`:
+Generates, under `data/derived/`:
 
-- `biblioteca.csv`: volcado legible de la tabla.
-- `biblioteca.sqlite`: copia SQLite (fuente del generador de SQL para D1).
-- `schema.sql`: esquema SQL de referencia.
+- `biblioteca.csv`: readable dump of the table.
+- `biblioteca.sqlite`: SQLite copy (source for the D1 SQL generator).
+- `schema.sql`: reference SQL schema.
 
-Uso:
-    uv run --project tools/etl biblioteca-etl export [ruta.accdb] [directorio_salida]
+Usage:
+    uv run --project tools/etl biblioteca-etl export [path.accdb] [output_dir]
 """
 
 from __future__ import annotations
@@ -19,132 +19,135 @@ from pathlib import Path
 
 from access_parser import AccessParser
 
-from .rutas import ACCBD, DERIVADOS
+from .paths import ACCESS_DB, DERIVED_DIR
 
 OBJECT_TYPES = {
-    1: "tabla",
-    2: "base",
-    3: "contenedor",
-    4: "consulta_eliminacion",
-    5: "consulta",
-    6: "tabla_vinculada",
-    -32768: "formulario",
+    1: "table",
+    2: "database",
+    3: "container",
+    4: "delete_query",
+    5: "query",
+    6: "linked_table",
+    -32768: "form",
     -32766: "macro",
-    -32764: "informe",
-    -32761: "modulo",
-    -32758: "modulo",  # algunos drivers usan este codigo
-    -32757: "propiedades",
+    -32764: "report",
+    -32761: "module",
+    -32758: "module",  # some drivers use this code
+    -32757: "properties",
 }
 
 
-def _cargar(accdb: Path) -> tuple[AccessParser, dict[str, list]]:
+def _load(accdb: Path) -> tuple[AccessParser, dict[str, list]]:
     db = AccessParser(str(accdb))
-    tablas: dict[str, list] = {}
-    for nombre in db.catalog:
-        if not nombre.startswith("MSys") and not nombre.startswith("f_"):
-            tablas[nombre] = db.get_table(nombre).parse()
-    return db, tablas
+    tables: dict[str, list] = {}
+    for name in db.catalog:
+        if not name.startswith("MSys") and not name.startswith("f_"):
+            tables[name] = db.get_table(name).parse()
+    return db, tables
 
 
-def inventario_objetos(db: AccessParser) -> list[tuple[str, str]]:
-    filas = db.parse_table("MSysObjects")
-    objetos = []
-    for nombre, tipo in zip(
-        filas.get("Name", []), filas.get("Type", []), strict=False
+def list_objects(db: AccessParser) -> list[tuple[str, str]]:
+    rows = db.parse_table("MSysObjects")
+    objects = []
+    for name, kind in zip(
+        rows.get("Name", []), rows.get("Type", []), strict=False
     ):
-        if nombre in (None, "") or tipo is None:
+        if name in (None, "") or kind is None:
             continue
-        nombre = str(nombre)
-        if nombre.startswith(("MSys", "f_")):
+        name = str(name)
+        if name.startswith(("MSys", "f_")):
             continue
-        if tipo == 3:  # contenedores de la barra de navegacion
+        if kind == 3:  # navigation pane containers
             continue
-        objetos.append((nombre, OBJECT_TYPES.get(tipo, f"otro({tipo})")))
-    return objetos
+        objects.append((name, OBJECT_TYPES.get(kind, f"other({kind})")))
+    return objects
 
 
-def _n_filas(columnas: dict[str, list]) -> int:
-    return len(next(iter(columnas.values()))) if columnas else 0
+def _row_count(columns: dict[str, list]) -> int:
+    return len(next(iter(columns.values()))) if columns else 0
 
 
-def exportar_csv(tabla: str, columnas: dict[str, list], destino: Path) -> None:
-    columnas_nombres = list(columnas)
-    with destino.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.writer(fh)
-        writer.writerow(columnas_nombres)
-        for i in range(_n_filas(columnas)):
-            writer.writerow([columnas[c][i] for c in columnas_nombres])
+def export_csv(table: str, columns: dict[str, list], destination: Path) -> None:
+    column_names = list(columns)
+    with destination.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(column_names)
+        for index in range(_row_count(columns)):
+            writer.writerow([columns[column][index] for column in column_names])
 
 
-def exportar_sqlite(datos: dict[str, list], destino: Path) -> None:
-    if destino.exists():
-        destino.unlink()
-    con = sqlite3.connect(destino)
-    cur = con.cursor()
-    for tabla, columnas in datos.items():
-        columnas_nombres = list(columnas)
-        defs = []
-        for c in columnas_nombres:
-            if c == "ID":
-                defs.append("ID INTEGER PRIMARY KEY")
+def export_sqlite(data: dict[str, list], destination: Path) -> None:
+    if destination.exists():
+        destination.unlink()
+    connection = sqlite3.connect(destination)
+    cursor = connection.cursor()
+    for table, columns in data.items():
+        column_names = list(columns)
+        definitions = []
+        for column in column_names:
+            if column == "ID":
+                definitions.append("ID INTEGER PRIMARY KEY")
             else:
-                defs.append(f"[{c}] TEXT")
-        cur.execute(f"CREATE TABLE [{tabla}] ({', '.join(defs)})")
-        marcadores = ", ".join("?" * len(columnas_nombres))
-        insert = f"INSERT INTO [{tabla}] VALUES ({marcadores})"
-        cur.executemany(
+                definitions.append(f"[{column}] TEXT")
+        cursor.execute(f"CREATE TABLE [{table}] ({', '.join(definitions)})")
+        placeholders = ", ".join("?" * len(column_names))
+        insert = f"INSERT INTO [{table}] VALUES ({placeholders})"
+        cursor.executemany(
             insert,
-            ([columnas[c][i] for c in columnas_nombres] for i in range(_n_filas(columnas))),
+            (
+                [columns[column][index] for column in column_names]
+                for index in range(_row_count(columns))
+            ),
         )
-    con.commit()
-    con.close()
+    connection.commit()
+    connection.close()
 
 
-def exportar_esquema(datos: dict[str, list], destino: Path) -> None:
-    lineas = []
-    for tabla, columnas in datos.items():
-        defs = []
-        for c in list(columnas):
-            if c == "ID":
-                defs.append("    ID INTEGER PRIMARY KEY")
+def export_schema(data: dict[str, list], destination: Path) -> None:
+    lines = []
+    for table, columns in data.items():
+        definitions = []
+        for column in list(columns):
+            if column == "ID":
+                definitions.append("    ID INTEGER PRIMARY KEY")
             else:
-                defs.append(f"    [{c}] TEXT")
-        lineas.append(f"CREATE TABLE [{tabla}] (\n" + ",\n".join(defs) + "\n);")
-    destino.write_text("\n\n".join(lineas) + "\n", encoding="utf-8")
+                definitions.append(f"    [{column}] TEXT")
+        lines.append(f"CREATE TABLE [{table}] (\n" + ",\n".join(definitions) + "\n);")
+    destination.write_text("\n\n".join(lines) + "\n", encoding="utf-8")
 
 
-def exportar_todo(accdb: Path, salida: Path) -> dict[str, int]:
-    """Exporta todas las tablas de Access y devuelve {tabla: filas}."""
+def export_all(accdb: Path, output_dir: Path) -> dict[str, int]:
+    """Export every Access table and return {table: row_count}."""
     if not accdb.exists():
-        raise SystemExit(f"No se encontró la base Access: {accdb}")
+        raise SystemExit(f"Access database not found: {accdb}")
 
-    salida.mkdir(parents=True, exist_ok=True)
-    db, datos = _cargar(accdb)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    db, data = _load(accdb)
 
-    print(f"Base de datos: {accdb}")
-    print("Objetos encontrados:")
-    for nombre, tipo in inventario_objetos(db):
-        print(f"  - [{tipo}] {nombre}")
+    print(f"Database: {accdb}")
+    print("Objects found:")
+    for name, kind in list_objects(db):
+        print(f"  - [{kind}] {name}")
 
-    for tabla, columnas in datos.items():
-        exportar_csv(tabla, columnas, salida / f"{tabla.lower()}.csv")
-    exportar_sqlite(datos, salida / "biblioteca.sqlite")
-    exportar_esquema(datos, salida / "schema.sql")
+    for table, columns in data.items():
+        export_csv(table, columns, output_dir / f"{table.lower()}.csv")
+    export_sqlite(data, output_dir / "biblioteca.sqlite")
+    export_schema(data, output_dir / "schema.sql")
 
-    conteos = {tabla: _n_filas(columnas) for tabla, columnas in datos.items()}
-    for tabla, n in conteos.items():
-        print(f"Tabla '{tabla}': {n} filas, {len(datos[tabla])} columnas")
-    print(f"Archivos generados en: {salida.resolve()}")
-    return conteos
+    counts = {table: _row_count(columns) for table, columns in data.items()}
+    for table, row_count in counts.items():
+        print(f"Table '{table}': {row_count} rows, {len(data[table])} columns")
+    print(f"Files written to: {output_dir.resolve()}")
+    return counts
 
 
 def main(argv: list[str] | None = None) -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("accdb", nargs="?", default=str(ACCBD))
-    ap.add_argument("salida", nargs="?", default=str(DERIVADOS))
-    args = ap.parse_args(argv)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("accdb", nargs="?", default=str(ACCESS_DB))
+    parser.add_argument("output", nargs="?", default=str(DERIVED_DIR))
+    args = parser.parse_args(argv)
 
-    exportar_todo(Path(args.accdb), Path(args.salida))
+    export_all(Path(args.accdb), Path(args.output))
 
 
 if __name__ == "__main__":

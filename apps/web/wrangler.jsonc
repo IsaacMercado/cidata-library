@@ -1,9 +1,9 @@
 /**
- * Configuración del Worker.
+ * Worker configuration.
  * https://developers.cloudflare.com/workers/wrangler/configuration/
  *
- * `compatibility_date` fija el comportamiento del runtime. Súbela solo
- * después de probar `npm run dev` y `npm run check`.
+ * `compatibility_date` pins runtime behavior. Raise it only after testing
+ * `npm run dev` and `npm run check`.
  */
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
@@ -14,13 +14,13 @@
   "observability": {
     "enabled": true
   },
-  // Opcional: dominio propio.
+  // Optional: custom domain.
   // "routes": [{ "pattern": "biblioteca.example.com", "custom_domain": true }],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    // El Worker decide antes que el asset para las páginas de escritura y la
-    // API. Incluimos las rutas limpias (/editar) y los .html antiguos.
+    // The Worker must run before the asset server for write pages and the API.
+    // Include both clean routes (/editar) and the legacy .html routes.
     "run_worker_first": [
       "/api/*",
       "/editar",
@@ -33,8 +33,7 @@
     {
       "binding": "DB",
       "database_name": "biblioteca",
-      // Cópialo de `npx wrangler d1 create biblioteca`.
-      "database_id": "REEMPLAZAR-con-el-id-de-wrangler-d1-create"
+      "database_id": "82ffabde-f5b1-4ca3-96f2-1195162c5931"
     }
   ]
 }

@@ -1,13 +1,11 @@
+# Optional CI/CD alternative. The primary paths are local `npm run deploy`
+# (Wrangler) or Cloudflare Workers Builds connected to Git; this workflow is
+# not required.
 name: Deploy production
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/web/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/deploy.yml"
+  # Manual only: this workflow is an optional alternative. It will not run on
+  # every push, so it cannot interfere with local Wrangler or Workers Builds.
   workflow_dispatch:
 
 permissions:
@@ -20,7 +18,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Migrar D1 + desplegar Worker
+    name: Migrate D1 + deploy Worker
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -31,31 +29,31 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Instalar dependencias
+      - name: Install dependencies
         run: npm ci
 
-      - name: Verificar Worker
+      - name: Verify Worker
         run: npm run check
 
       - name: Tests
         run: npm test
 
-      - name: Verificar configuración de D1
+      - name: Verify D1 configuration
         run: |
           if grep -q 'REEMPLAZAR-con-el-id' apps/web/wrangler.jsonc; then
-            echo "::error::Falta el database_id real en apps/web/wrangler.jsonc"
+            echo "::error::Missing real database_id in apps/web/wrangler.jsonc"
             exit 1
           fi
 
-      # Primero el esquema, después el código que lo usa. Si no hay
-      # migraciones pendientes, Wrangler no hace nada.
-      - name: Aplicar migraciones D1
+      # Schema first, then the code that uses it. If there are no pending
+      # migrations, Wrangler does nothing.
+      - name: Apply D1 migrations
         run: npm run db:migrate:remote
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Desplegar Worker
+      - name: Deploy Worker
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

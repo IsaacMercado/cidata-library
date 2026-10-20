@@ -1,10 +1,9 @@
-"""Genera una réplica HTML autocontenida del formulario Access `Biblioteca`.
+"""Generate a self-contained HTML replica of the Access form `Biblioteca`.
 
-Lee el SQLite exportado y escribe `data/derived/form.html` con todos los
-registros embebidos para poder abrirlo directamente en el navegador (sin
-servidor).
+Reads the exported SQLite database and writes `data/derived/form.html` with all
+records embedded so it can be opened directly in a browser (no server).
 
-Uso:
+Usage:
     uv run --project tools/etl biblioteca-web [data/derived/biblioteca.sqlite] [data/derived/form.html]
 """
 
@@ -15,18 +14,18 @@ import json
 import sqlite3
 from pathlib import Path
 
-from .form_spec import CAMPOS, FILTRO_GUARDADO, PALABRA_FILTRO, TABLA, TITULO
-from .rutas import DERIVADOS, SQLITE
+from .form_spec import FIELDS, FILTER_WORD, SAVED_FILTER, TABLE, TITLE
+from .paths import DERIVED_DIR, SQLITE_DB
 
-SQLITE_DEFECTO = SQLITE
-HTML_DEFECTO = DERIVADOS / "form.html"
+DEFAULT_SQLITE = SQLITE_DB
+DEFAULT_HTML = DERIVED_DIR / "form.html"
 
-PLANTILLA = """<!DOCTYPE html>
+TEMPLATE = """<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>__TITULO__</title>
+<title>__TITLE__</title>
 <style>
   :root { --gris: #d4d0c8; --borde: #808080; }
   * { box-sizing: border-box; }
@@ -48,102 +47,108 @@ PLANTILLA = """<!DOCTYPE html>
 </head>
 <body>
   <div class="ventana">
-    <div class="encabezado">__TITULO__</div>
-    <div class="detalle" id="detalle"></div>
+    <div class="encabezado">__TITLE__</div>
+    <div class="detalle" id="detail"></div>
     <div class="pie">
       <button data-nav="first" title="Primero">|&#9664;</button>
       <button data-nav="prev" title="Anterior">&#9664;</button>
       <button data-nav="next" title="Siguiente">&#9654;</button>
       <button data-nav="last" title="Último">&#9654;|</button>
-      <span class="pos" id="pos"></span>
+      <span class="pos" id="position"></span>
       <span class="derecha">
-        <label for="buscar">Buscar (Texto Ficha):</label>
-        <input id="buscar" placeholder="__PALABRA__">
-        <span class="aviso" title="Filtro guardado en Access: __FILTRO__">filtro Access</span>
+        <label for="search">Buscar (Texto Ficha):</label>
+        <input id="search" placeholder="__FILTER_WORD__">
+        <span class="aviso" title="Filtro guardado en Access: __SAVED_FILTER__">filtro Access</span>
       </span>
     </div>
   </div>
 <script>
-const CAMPOS = __CAMPOS__;
-const REGISTROS = __DATOS__;
-let vista = REGISTROS.map((_, i) => i);
-let pos = 0;
-const cont = document.getElementById("detalle");
-const controles = {};
-for (const [col, caption, multilinea] of CAMPOS) {
-  const fila = document.createElement("div");
-  fila.className = "fila";
-  const lab = document.createElement("label");
-  lab.textContent = caption;
-  fila.appendChild(lab);
-  const el = document.createElement(multilinea ? "textarea" : "input");
-  if (multilinea) { el.rows = 3; } else { el.type = "text"; }
-  if (col === "ID") { el.readOnly = true; }
-  fila.appendChild(el);
-  cont.appendChild(fila);
-  controles[col] = el;
+const FIELDS = __FIELDS__;
+const RECORDS = __RECORDS__;
+let view = RECORDS.map((_, index) => index);
+let position = 0;
+const container = document.getElementById("detail");
+const controls = {};
+for (const [column, caption, multiline] of FIELDS) {
+  const row = document.createElement("div");
+  row.className = "fila";
+  const label = document.createElement("label");
+  label.textContent = caption;
+  row.appendChild(label);
+  const element = document.createElement(multiline ? "textarea" : "input");
+  if (multiline) { element.rows = 3; } else { element.type = "text"; }
+  if (column === "ID") { element.readOnly = true; }
+  row.appendChild(element);
+  container.appendChild(row);
+  controls[column] = element;
 }
-function mostrar() {
-  if (!vista.length) return;
-  pos = Math.max(0, Math.min(pos, vista.length - 1));
-  const fila = REGISTROS[vista[pos]];
-  CAMPOS.forEach(([col], i) => { controles[col].value = fila[i] ?? ""; });
-  document.getElementById("pos").textContent = `Registro ${pos + 1} de ${vista.length}`;
+function render() {
+  if (!view.length) return;
+  position = Math.max(0, Math.min(position, view.length - 1));
+  const record = RECORDS[view[position]];
+  FIELDS.forEach(([column], index) => { controls[column].value = record[index] ?? ""; });
+  document.getElementById("position").textContent = `Registro ${position + 1} de ${view.length}`;
 }
-document.querySelectorAll("[data-nav]").forEach(b => b.addEventListener("click", () => {
-  const a = b.dataset.nav;
-  if (a === "first") pos = 0;
-  else if (a === "prev") pos--;
-  else if (a === "next") pos++;
-  else if (a === "last") pos = vista.length - 1;
-  mostrar();
+document.querySelectorAll("[data-nav]").forEach((button) => button.addEventListener("click", () => {
+  const action = button.dataset.nav;
+  if (action === "first") position = 0;
+  else if (action === "prev") position--;
+  else if (action === "next") position++;
+  else if (action === "last") position = view.length - 1;
+  render();
 }));
-document.getElementById("buscar").addEventListener("input", (e) => {
-  const q = e.target.value.trim().toLowerCase();
-  vista = REGISTROS.map((_, i) => i).filter(i => !q || String(REGISTROS[i][CAMPOS.findIndex(c => c[0] === "Texto Ficha")] ?? "").toLowerCase().includes(q));
-  if (!vista.length) vista = REGISTROS.map((_, i) => i);
-  pos = 0;
-  mostrar();
+document.getElementById("search").addEventListener("input", (event) => {
+  const query = event.target.value.trim().toLowerCase();
+  const catalogIndex = FIELDS.findIndex((field) => field[0] === "Texto Ficha");
+  view = RECORDS.map((_, index) => index).filter((index) =>
+    !query || String(RECORDS[index][catalogIndex] ?? "").toLowerCase().includes(query)
+  );
+  if (!view.length) view = RECORDS.map((_, index) => index);
+  position = 0;
+  render();
 });
-mostrar();
+render();
 </script>
 </body>
 </html>
 """
 
 
-def generar(sqlite: Path, destino: Path) -> int:
-    con = sqlite3.connect(sqlite)
-    cols = ", ".join(f"[{c}]" for c, _, _ in CAMPOS)
-    filas = [list(r) for r in con.execute(f"SELECT {cols} FROM [{TABLA}]")]
-    con.close()
+def generate_document(sqlite_path: Path, destination: Path) -> int:
+    connection = sqlite3.connect(sqlite_path)
+    columns_sql = ", ".join(f"[{column}]" for column, _, _ in FIELDS)
+    rows = [
+        list(row)
+        for row in connection.execute(f"SELECT {columns_sql} FROM [{TABLE}]")
+    ]
+    connection.close()
 
-    campos = [[c, cap, multi] for c, cap, multi in CAMPOS]
+    fields = [[column, caption, multiline] for column, caption, multiline in FIELDS]
     html = (
-        PLANTILLA.replace("__TITULO__", TITULO)
-        .replace("__PALABRA__", PALABRA_FILTRO)
-        .replace("__FILTRO__", FILTRO_GUARDADO)
-        .replace("__CAMPOS__", json.dumps(campos, ensure_ascii=False))
-        .replace("__DATOS__", json.dumps(filas, ensure_ascii=False))
+        TEMPLATE.replace("__TITLE__", TITLE)
+        .replace("__FILTER_WORD__", FILTER_WORD)
+        .replace("__SAVED_FILTER__", SAVED_FILTER)
+        .replace("__FIELDS__", json.dumps(fields, ensure_ascii=False))
+        .replace("__RECORDS__", json.dumps(rows, ensure_ascii=False))
     )
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    destino.write_text(html, encoding="utf-8")
-    return len(filas)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(html, encoding="utf-8")
+    return len(rows)
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("sqlite", nargs="?", default=str(SQLITE_DEFECTO))
-    ap.add_argument("salida", nargs="?", default=str(HTML_DEFECTO))
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("sqlite", nargs="?", default=str(DEFAULT_SQLITE))
+    parser.add_argument("output", nargs="?", default=str(DEFAULT_HTML))
+    args = parser.parse_args()
 
-    ruta = Path(args.sqlite)
-    if not ruta.exists():
+    sqlite_path = Path(args.sqlite)
+    if not sqlite_path.exists():
         raise SystemExit(
-            f"No se encontró {ruta}. Ejecuta antes: uv run biblioteca-export"
+            f"{sqlite_path} not found. Run first: uv run biblioteca-export"
         )
-    n = generar(ruta, Path(args.salida))
-    print(f"{n} registros -> {Path(args.salida).resolve()}")
+    count = generate_document(sqlite_path, Path(args.output))
+    print(f"{count} records -> {Path(args.output).resolve()}")
 
 
 if __name__ == "__main__":

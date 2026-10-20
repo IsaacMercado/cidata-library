@@ -2,48 +2,50 @@ import { zValidator } from "@hono/zod-validator";
 import { z, type ZodType } from "zod";
 import type { Context } from "hono";
 
-// GET /api/libros?q=&modo=&campos=&orden=&page=&limit=
-export const esquemaLista = z.object({
+// GET /api/libros?q=&mode=&fields=&order=&page=&limit=
+export const listQuerySchema = z.object({
   q: z.string().max(500).optional().default(""),
-  modo: z.enum(["simple", "avanzado"]).optional().default("simple"),
-  campos: z.string().max(500).optional().default(""),
-  orden: z.enum(["id", "titulo", "autor"]).optional().default("id"),
+  mode: z.enum(["simple", "advanced"]).optional().default("simple"),
+  fields: z.string().max(500).optional().default(""),
+  order: z.enum(["id", "title", "author"]).optional().default("id"),
   page: z.coerce.number().int().min(1).max(100_000).optional().default(1),
   limit: z.coerce.number().int().min(1).max(100).optional().default(25),
 });
 
 // /api/libros/:id
-export const esquemaId = z.object({
+export const idParamSchema = z.object({
   id: z.coerce.number().int().positive().max(2_147_483_647),
 });
 
-// Cuerpo de POST/PUT: solo columnas conocidas, estrictas y no vacio.
-// (Los '' se convierten a null en el handler.)
-const textoCampo = z.union([z.string().max(200_000), z.number()]).optional();
-export const esquemaRegistro = z
+// POST/PUT body: known columns only, strict and non-empty. Empty strings are
+// converted to null in the handler.
+const textField = z.union([z.string().max(200_000), z.number()]).optional();
+export const bookInputSchema = z
   .object({
-    cota: textoCampo,
-    titulo: textoCampo,
-    coautor: textoCampo,
-    temaOMateria: textoCampo,
-    series: textoCampo,
-    paginas: textoCampo,
-    isbn: textoCampo,
-    notas: textoCampo,
-    codigoCida: textoCampo,
-    ejemplares: textoCampo,
-    precioUnidad: textoCampo,
-    precioTotal: textoCampo,
-    donacion: textoCampo,
-    textoFicha: textoCampo,
-    autor: textoCampo,
-    lujoRustico: textoCampo,
+    callNumber: textField,
+    title: textField,
+    coauthor: textField,
+    subject: textField,
+    series: textField,
+    pages: textField,
+    isbn: textField,
+    notes: textField,
+    cidaCode: textField,
+    copies: textField,
+    unitPrice: textField,
+    totalPrice: textField,
+    donation: textField,
+    catalogText: textField,
+    author: textField,
+    binding: textField,
   })
   .strict()
-  .refine((o) => Object.keys(o).length > 0, { message: "Registro vacío" });
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "Registro vacío",
+  });
 
 // POST /api/auth/login
-export const esquemaLogin = z
+export const loginSchema = z
   .object({
     email: z
       .string()
@@ -55,19 +57,19 @@ export const esquemaLogin = z
   })
   .strict();
 
-/** zValidator con error 400 en español y formato estable (conserva tipos). */
-export function validar<T extends "json" | "query" | "param", S extends ZodType>(
-  objetivo: T,
-  esquema: S,
+/** zValidator with a stable 400 shape. User-facing messages stay in Spanish. */
+export function validate<T extends "json" | "query" | "param", S extends ZodType>(
+  target: T,
+  schema: S,
 ) {
-  return zValidator(objetivo, esquema, (resultado, c: Context) => {
-    if (!resultado.success) {
+  return zValidator(target, schema, (result, c: Context) => {
+    if (!result.success) {
       return c.json(
         {
-          error: "validacion",
-          detalles: resultado.error.issues.map((i) => ({
-            campo: i.path.join(".") || "(raíz)",
-            mensaje: i.message,
+          error: "validation_error",
+          details: result.error.issues.map((issue) => ({
+            field: issue.path.join(".") || "(root)",
+            message: issue.message,
           })),
         },
         400,

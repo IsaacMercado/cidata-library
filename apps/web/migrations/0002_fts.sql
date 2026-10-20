@@ -1,8 +1,8 @@
--- Busqueda avanzada por texto con FTS5 sobre Biblioteca.
--- La tabla virtual NO duplica el contenido (content= apunta a Biblioteca) y
--- los triggers la mantienen sincronizada en INSERT/UPDATE/DELETE.
--- unicode61 con remove_diacritics=2: insensible a mayusculas y a tildes
--- (rustico encuentra "Rústico"), adecuado para texto en español.
+-- Full-text search with FTS5 over Biblioteca.
+-- The virtual table does NOT duplicate content (content= points to Biblioteca)
+-- and triggers keep it in sync on INSERT/UPDATE/DELETE.
+-- unicode61 with remove_diacritics=2: case- and accent-insensitive
+-- (rustico matches "Rústico"), suitable for Spanish text.
 
 CREATE VIRTUAL TABLE `biblioteca_fts` USING fts5(
 	`Titulo`,

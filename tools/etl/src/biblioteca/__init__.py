@@ -1,7 +1,7 @@
-"""Herramientas ETL de la biblioteca.
+"""Library ETL tools.
 
-Extrae la base Microsoft Access a formatos portables y carga los datos en
-Cloudflare D1. Ver `cli.py` y el README del directorio.
+Extract the Microsoft Access database into portable formats and load the data
+into Cloudflare D1. See `cli.py` and this directory's README.
 """
 
 __version__ = "0.2.0"

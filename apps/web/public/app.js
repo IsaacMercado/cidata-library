@@ -1,111 +1,118 @@
-// Utilidades compartidas: campos del formulario (mismo orden que Access),
-// llamadas a la API y constructor del formulario de edicion.
-export const CAMPOS = [
-  { clave: "id", etiqueta: "ID", multilinea: false, soloLectura: true },
-  { clave: "cota", etiqueta: "Cota", multilinea: false },
-  { clave: "titulo", etiqueta: "Titulo", multilinea: false },
-  { clave: "coautor", etiqueta: "Coautor", multilinea: false },
-  { clave: "temaOMateria", etiqueta: "Tema o Materia", multilinea: false },
-  { clave: "series", etiqueta: "Series", multilinea: false },
-  { clave: "paginas", etiqueta: "Paginas", multilinea: false },
-  { clave: "isbn", etiqueta: "ISBN", multilinea: false },
-  { clave: "notas", etiqueta: "Notas", multilinea: true },
-  { clave: "codigoCida", etiqueta: "Codigo CIDA", multilinea: false },
-  { clave: "ejemplares", etiqueta: "Ejemplares", multilinea: false },
-  { clave: "precioUnidad", etiqueta: "Precio Unidad", multilinea: false },
-  { clave: "precioTotal", etiqueta: "Precio Total", multilinea: false },
-  { clave: "donacion", etiqueta: "Donacion", multilinea: false },
-  { clave: "textoFicha", etiqueta: "Texto Ficha:", multilinea: true },
-  { clave: "autor", etiqueta: "Autor:", multilinea: false },
-  { clave: "lujoRustico", etiqueta: "Lujo/Rústico:", multilinea: false },
+// Shared helpers: form fields (same order as Access), API calls and the edit
+// form builder. User-facing labels stay in Spanish; identifiers are English.
+export const FIELDS = [
+  { key: "id", label: "ID", multiline: false, readOnly: true },
+  { key: "callNumber", label: "Cota", multiline: false },
+  { key: "title", label: "Titulo", multiline: false },
+  { key: "coauthor", label: "Coautor", multiline: false },
+  { key: "subject", label: "Tema o Materia", multiline: false },
+  { key: "series", label: "Series", multiline: false },
+  { key: "pages", label: "Paginas", multiline: false },
+  { key: "isbn", label: "ISBN", multiline: false },
+  { key: "notes", label: "Notas", multiline: true },
+  { key: "cidaCode", label: "Codigo CIDA", multiline: false },
+  { key: "copies", label: "Ejemplares", multiline: false },
+  { key: "unitPrice", label: "Precio Unidad", multiline: false },
+  { key: "totalPrice", label: "Precio Total", multiline: false },
+  { key: "donation", label: "Donacion", multiline: false },
+  { key: "catalogText", label: "Texto Ficha:", multiline: true },
+  { key: "author", label: "Autor:", multiline: false },
+  { key: "binding", label: "Lujo/Rústico:", multiline: false },
 ];
 
-export function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (m) => ({
+export function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[m]);
+  })[character]);
 }
 
-export async function api(path, opciones = {}) {
-  const r = await fetch(path, {
+/** Escape an FTS5 snippet, then restore only the server-provided markers. */
+export function highlightFragment(fragment) {
+  return escapeHtml(fragment)
+    .replaceAll("\u0001", "<mark>")
+    .replaceAll("\u0002", "</mark>");
+}
+
+export async function api(path, options = {}) {
+  const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
-    ...opciones,
+    ...options,
   });
-  const cuerpo = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    const e = new Error(cuerpo.mensaje || cuerpo.error || `HTTP ${r.status}`);
-    e.status = r.status;
-    e.codigo = cuerpo.error;
-    throw e;
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(body.message || body.error || `HTTP ${response.status}`);
+    error.status = response.status;
+    error.code = body.error;
+    throw error;
   }
-  return cuerpo;
+  return body;
 }
 
-/** Construye el formulario de edicion; devuelve funcion que recoge valores. */
-export function construirFormulario(contenedor, registro = {}) {
-  contenedor.innerHTML = "";
-  const controles = {};
-  for (const campo of CAMPOS) {
-    const fila = document.createElement("div");
-    fila.className = "fila";
-    const lab = document.createElement("label");
-    const idCampo = `campo-${campo.clave}`;
-    lab.textContent = campo.etiqueta;
-    lab.htmlFor = idCampo;
-    fila.appendChild(lab);
-    const el = document.createElement(campo.multilinea ? "textarea" : "input");
-    if (campo.multilinea) el.rows = 3;
-    else el.type = "text";
-    el.id = idCampo;
-    el.name = campo.clave;
-    el.value = registro[campo.clave] ?? "";
-    if (campo.soloLectura) {
-      el.readOnly = true;
-      el.tabIndex = -1;
+/** Build the edit form; returns a function that collects the current values. */
+export function buildForm(container, record = {}) {
+  container.innerHTML = "";
+  const controls = {};
+  for (const field of FIELDS) {
+    const row = document.createElement("div");
+    row.className = "fila";
+    const label = document.createElement("label");
+    const fieldId = `field-${field.key}`;
+    label.textContent = field.label;
+    label.htmlFor = fieldId;
+    row.appendChild(label);
+    const element = document.createElement(field.multiline ? "textarea" : "input");
+    if (field.multiline) element.rows = 3;
+    else element.type = "text";
+    element.id = fieldId;
+    element.name = field.key;
+    element.value = record[field.key] ?? "";
+    if (field.readOnly) {
+      element.readOnly = true;
+      element.tabIndex = -1;
     } else {
-      el.placeholder = campo.etiqueta.replace(/:$/, "");
-      el.autocomplete = "off";
+      element.placeholder = field.label.replace(/:$/, "");
+      element.autocomplete = "off";
     }
-    fila.appendChild(el);
-    contenedor.appendChild(fila);
-    controles[campo.clave] = el;
+    row.appendChild(element);
+    container.appendChild(row);
+    controls[field.key] = element;
   }
   return () => {
-    const datos = {};
-    for (const campo of CAMPOS) {
-      if (campo.soloLectura) continue;
-      datos[campo.clave] = controles[campo.clave].value;
+    const values = {};
+    for (const field of FIELDS) {
+      if (field.readOnly) continue;
+      values[field.key] = controls[field.key].value;
     }
-    return datos;
+    return values;
   };
 }
 
-/** Pinta "Entrar" o "email [Salir]" en el <span id="sesion"> de la cabecera. */
-export async function actualizarSesion() {
-  const el = document.getElementById("sesion");
-  if (!el) return;
+/** Render "Entrar" or "email [Salir]" in the header session slot. */
+export async function updateSession() {
+  const element = document.getElementById("session");
+  if (!element) return;
   try {
-    const r = await fetch("/api/auth/yo");
-    if (!r.ok) {
-      el.innerHTML = `<a href="/login?next=${encodeURIComponent(location.pathname + location.search)}">Entrar</a>`;
+    const response = await fetch("/api/auth/me");
+    if (!response.ok) {
+      element.innerHTML = `<a href="/login?next=${encodeURIComponent(location.pathname + location.search)}">Entrar</a>`;
       return;
     }
-    const { email } = await r.json();
-    el.innerHTML =
-      `<span class="usuario">${esc(email)}</span> <a href="#" id="salir">Salir</a>`;
-    document.getElementById("salir").addEventListener("click", async (e) => {
-      e.preventDefault();
+    const { email } = await response.json();
+    element.innerHTML =
+      `<span class="usuario">${escapeHtml(email)}</span> <a href="#" id="logout-link">Salir</a>`;
+    document.getElementById("logout-link").addEventListener("click", async (event) => {
+      event.preventDefault();
       await fetch("/api/auth/logout", { method: "POST" });
       location.reload();
     });
   } catch {
-    el.innerHTML = '<a href="/login">Entrar</a>';
+    element.innerHTML = '<a href="/login">Entrar</a>';
   }
 }
 
-export function mostrarAviso(id, texto, esError = false) {
-  const el = document.getElementById(id);
-  el.hidden = false;
-  el.className = esError ? "error" : "aviso";
-  el.textContent = texto;
+export function showNotice(id, text, isError = false) {
+  const element = document.getElementById(id);
+  element.hidden = false;
+  element.className = isError ? "error" : "aviso";
+  element.textContent = text;
 }

@@ -1,19 +1,21 @@
-"""Especificación del formulario Access `Biblioteca`, reconstruida desde el
-blob de diseño (`MSysAccessStorage`).
+"""Specification of the Access form `Biblioteca`, rebuilt from its design blob
+(`MSysAccessStorage`).
 
-El formulario original es de tipo *columnar* (un registro a la vez): secciones
-EncabezadoDelFormulario / Detalle / PieDelFormulario, con 17 pares
-etiqueta + cuadro de texto en el Detalle.
+The original form is *columnar* (one record at a time): form header / detail /
+form footer sections, with 17 label + text-box pairs in the detail section.
+
+Database table and column names stay in Spanish because they are the data
+contract. Python identifiers are English.
 """
 
 from __future__ import annotations
 
-TABLA = "Biblioteca"
-TITULO = "Biblioteca"
+TABLE = "Biblioteca"
+TITLE = "Biblioteca"
 
-# (nombre_columna, caption_etiqueta, multilinea)
-# El orden reproduce el del formulario (no el de la tabla).
-CAMPOS: list[tuple[str, str, bool]] = [
+# (column_name, label_caption, multiline)
+# The order matches the form (not the table).
+FIELDS: list[tuple[str, str, bool]] = [
     ("ID", "ID", False),
     ("Cota", "Cota", False),
     ("Titulo", "Titulo", False),
@@ -33,8 +35,8 @@ CAMPOS: list[tuple[str, str, bool]] = [
     ("Lujo/Rústico", "Lujo/Rústico:", False),
 ]
 
-# Única "fórmula" del formulario: su propiedad Filter guardada.
-FILTRO_GUARDADO = '([Biblioteca].[Texto Ficha] Like "* titulo*")'
-PALABRA_FILTRO = "titulo"
+# The only "formula" in the form: its saved Filter property.
+SAVED_FILTER = '([Biblioteca].[Texto Ficha] Like "* titulo*")'
+FILTER_WORD = "titulo"
 
-COLUMNAS = [c for c, _, _ in CAMPOS]
+COLUMNS = [column for column, _, _ in FIELDS]

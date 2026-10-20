@@ -11,15 +11,15 @@
 <header class="topbar">
   <div class="wrap topbar-inner">
     <a class="marca" href="/">📚 Biblioteca<small>Catálogo en línea</small></a>
-    <nav><span id="sesion"></span><a href="/" aria-current="page">Buscar</a><a href="/nuevo">Nuevo registro</a></nav>
+    <nav><span id="session"></span><a href="/" aria-current="page">Buscar</a><a href="/nuevo">Nuevo registro</a></nav>
   </div>
 </header>
 <main class="wrap">
   <section class="tarjeta">
     <h1>Buscar en el catálogo</h1>
     <p class="subtitulo">Búsqueda de texto completo, insensible a tildes.</p>
-    <div id="aviso" class="aviso" hidden></div>
-    <form id="buscador" class="buscador" role="search">
+    <div id="notice" class="aviso" hidden></div>
+    <form id="search-form" class="buscador" role="search">
       <input type="search" id="q" placeholder="Título, autor, tema, ficha… (p. ej. geofísica)" autocomplete="off">
       <button type="submit">Buscar</button>
     </form>
@@ -27,93 +27,124 @@
       <summary>Opciones de búsqueda</summary>
       <div class="filtros-cuerpo">
         <label class="campo-filtro">Modo
-          <select id="modo" title="Modo de búsqueda">
+          <select id="mode" title="Modo de búsqueda">
             <option value="simple">Simple (palabras)</option>
-            <option value="avanzado">Avanzada (FTS5)</option>
+            <option value="advanced">Avanzada (FTS5)</option>
           </select>
         </label>
         <label class="campo-filtro">Orden
-          <select id="orden" title="Orden">
+          <select id="order" title="Orden">
             <option value="id">Relevancia / ID</option>
-            <option value="titulo">Por título</option>
-            <option value="autor">Por autor</option>
+            <option value="title">Por título</option>
+            <option value="author">Por autor</option>
           </select>
         </label>
       </div>
-      <div class="campos-fts" id="camposFts" title="Limitar la búsqueda a estos campos"></div>
+      <div class="campos-fts" id="fts-fields" title="Limitar la búsqueda a estos campos"></div>
     </details>
     <p class="ayuda">Modo avanzado: frases <code>"…"</code>, <code>AND</code> / <code>OR</code> / <code>NOT</code>, prefijos <code>term*</code> y filtros <code>{Titulo Autor} : …</code>.</p>
   </section>
   <section class="tarjeta">
-    <div class="info-resultados" id="info" aria-live="polite"></div>
+    <div class="info-resultados" id="results-info" aria-live="polite"></div>
     <div class="tabla-scroll">
       <table class="resultados">
         <thead><tr><th style="width:64px">ID</th><th>Título</th><th>Autor</th><th>Tema o materia</th></tr></thead>
-        <tbody id="filas"></tbody>
+        <tbody id="rows"></tbody>
       </table>
     </div>
     <div class="pie">
-      <button id="ant" type="button" class="btn-secundario">◀ Anterior</button>
-      <span class="pos" id="pos"></span>
-      <button id="sig" type="button" class="btn-secundario">Siguiente ▶</button>
+      <button id="prev-page" type="button" class="btn-secundario">◀ Anterior</button>
+      <span class="pos" id="page-position"></span>
+      <button id="next-page" type="button" class="btn-secundario">Siguiente ▶</button>
     </div>
   </section>
 </main>
 <script type="module">
-import { actualizarSesion, api, esc, mostrarAviso } from "/app.js";
+import { updateSession, api, escapeHtml, highlightFragment, showNotice } from "/app.js";
 
-let meta = null, page = 1, pages = 1, cargando = false;
+let meta = null;
+let page = 1;
+let pages = 1;
+let loading = false;
 const $ = (id) => document.getElementById(id);
 
 async function init() {
-  actualizarSesion();
+  updateSession();
   meta = await api("/api/meta");
-  const cont = $("camposFts");
-  for (const col of meta.ftsColumnas) {
-    const lab = document.createElement("label");
-    const cb = document.createElement("input");
-    cb.type = "checkbox"; cb.value = col; cb.checked = true;
-    lab.append(cb, " " + col);
-    cont.appendChild(lab);
+  const container = $("fts-fields");
+  for (const column of meta.ftsColumns) {
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = column;
+    checkbox.checked = true;
+    label.append(checkbox, " " + column);
+    container.appendChild(label);
   }
-  $("buscador").addEventListener("submit", (e) => { e.preventDefault(); page = 1; buscar(); });
-  $("q").addEventListener("input", () => { page = 1; buscar(); });
-  $("modo").addEventListener("change", () => { page = 1; buscar(); });
-  $("orden").addEventListener("change", () => { page = 1; buscar(); });
-  cont.addEventListener("change", () => { page = 1; buscar(); });
-  $("ant").addEventListener("click", () => { if (page > 1) { page--; buscar(); } });
-  $("sig").addEventListener("click", () => { if (page < pages) { page++; buscar(); } });
-  buscar();
+  $("search-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    page = 1;
+    search();
+  });
+  $("q").addEventListener("input", () => {
+    page = 1;
+    search();
+  });
+  $("mode").addEventListener("change", () => {
+    page = 1;
+    search();
+  });
+  $("order").addEventListener("change", () => {
+    page = 1;
+    search();
+  });
+  container.addEventListener("change", () => {
+    page = 1;
+    search();
+  });
+  $("prev-page").addEventListener("click", () => {
+    if (page > 1) {
+      page--;
+      search();
+    }
+  });
+  $("next-page").addEventListener("click", () => {
+    if (page < pages) {
+      page++;
+      search();
+    }
+  });
+  search();
 }
 
-async function buscar() {
-  if (cargando) return;
-  cargando = true;
+async function search() {
+  if (loading) return;
+  loading = true;
   const params = new URLSearchParams({
     q: $("q").value.trim(),
-    modo: $("modo").value,
-    orden: $("orden").value,
+    mode: $("mode").value,
+    order: $("order").value,
     page: String(page),
     limit: "25",
   });
-  const sel = [...document.querySelectorAll("#camposFts input:checked")].map((c) => c.value);
-  if (sel.length !== meta.ftsColumnas.length) params.set("campos", sel.join(","));
+  const selected = [...document.querySelectorAll("#fts-fields input:checked")].map((checkbox) => checkbox.value);
+  if (selected.length !== meta.ftsColumns.length) params.set("fields", selected.join(","));
   try {
-    const r = await api("/api/libros?" + params);
-    pages = r.pages || 1;
-    $("info").innerHTML = `<strong>${esc(r.total)}</strong> resultado(s)`;
-    $("filas").innerHTML = r.items.length ? r.items.map((f) =>
-      `<tr><td class="id-celda">${esc(f.id)}</td><td><a href="/libro?id=${esc(f.id)}">${esc(f.titulo) || "—"}</a>` +
-      (f.fragmento ? `<br><small>${f.fragmento}</small>` : "") +
-      `</td><td>${esc(f.autor) || "—"}</td><td>${esc(f.temaOMateria) || "—"}</td></tr>`
+    const result = await api("/api/libros?" + params);
+    pages = result.pages || 1;
+    $("results-info").innerHTML = `<strong>${escapeHtml(result.total)}</strong> resultado(s)`;
+    $("rows").innerHTML = result.items.length ? result.items.map((book) =>
+      `<tr><td class="id-celda">${escapeHtml(book.id)}</td><td><a href="/libro?id=${escapeHtml(book.id)}">${escapeHtml(book.title) || "—"}</a>` +
+      (book.fragment ? `<br><small>${highlightFragment(book.fragment)}</small>` : "") +
+      `</td><td>${escapeHtml(book.author) || "—"}</td><td>${escapeHtml(book.subject) || "—"}</td></tr>`
     ).join("") : `<tr><td colspan="4"><div class="vacio">Sin resultados para esta búsqueda.</div></td></tr>`;
-    $("pos").textContent = `Página ${r.page} de ${pages}`;
-    $("ant").disabled = r.page <= 1;
-    $("sig").disabled = r.page >= pages;
-  } catch (e) {
-    mostrarAviso("aviso", e.message, true);
+    $("page-position").textContent = `Página ${result.page} de ${pages}`;
+    $("prev-page").disabled = result.page <= 1;
+    $("next-page").disabled = result.page >= pages;
+  } catch (error) {
+    showNotice("notice", error.message, true);
   } finally {
-    cargando = false;
+    loading = false;
   }
 }
 

@@ -24,7 +24,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Instalar dependencias
+      - name: Install dependencies
         run: npm ci
 
       - name: Typecheck + bundle (dry-run)
@@ -44,7 +44,7 @@ jobs:
           version: "0.12.18"
           enable-cache: true
 
-      - name: Sincronizar entorno
+      - name: Sync environment
         run: uv sync --project tools/etl --frozen
 
       - name: Lint

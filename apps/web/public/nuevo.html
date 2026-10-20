@@ -18,26 +18,29 @@
   <section class="tarjeta">
     <h1>Nuevo registro</h1>
     <p class="subtitulo">Solo usuarios con sesión iniciada.</p>
-    <div id="aviso" class="aviso" hidden></div>
-    <div id="form"></div>
+    <div id="notice" class="aviso" hidden></div>
+    <div id="form-container"></div>
     <div class="barra-acciones">
-      <button id="crear" type="button">Crear registro</button>
+      <button id="create-button" type="button">Crear registro</button>
       <a class="btn btn-secundario" href="/">Cancelar</a>
     </div>
   </section>
 </main>
 <script type="module">
-import { api, construirFormulario, mostrarAviso } from "/app.js";
+import { api, buildForm, showNotice } from "/app.js";
 
-const recoger = construirFormulario(document.getElementById("form"));
-document.getElementById("crear").addEventListener("click", async () => {
+const collect = buildForm(document.getElementById("form-container"));
+document.getElementById("create-button").addEventListener("click", async () => {
   try {
-    const r = await api("/api/libros", { method: "POST", body: JSON.stringify(recoger()) });
-    location.href = "/libro?id=" + encodeURIComponent(r.id);
-  } catch (e) {
-    mostrarAviso("aviso", e.status === 401
+    const created = await api("/api/libros", {
+      method: "POST",
+      body: JSON.stringify(collect()),
+    });
+    location.href = "/libro?id=" + encodeURIComponent(created.id);
+  } catch (error) {
+    showNotice("notice", error.status === 401
       ? "Para crear debes iniciar sesión."
-      : e.message, true);
+      : error.message, true);
   }
 });
 </script>

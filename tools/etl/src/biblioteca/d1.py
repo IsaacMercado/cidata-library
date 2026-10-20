@@ -1,22 +1,22 @@
-"""Carga las filas de SQLite en D1 (local o remoto).
+"""Load SQLite rows into D1 (local or remote).
 
-Dos formas de subida:
+Two upload methods:
 
-- `--via wrangler` (por defecto): usa el CLI de Wrangler ya autenticado. Es la
-  opción cómoda desde tu máquina.
-- `--via api`: usa la API HTTP de D1 con un token. Útil desde CI o servidores
-  sin `wrangler login`. Requiere:
+- `--method wrangler` (default): uses an already authenticated Wrangler CLI.
+  Convenient from your machine.
+- `--method api`: uses the D1 HTTP API with a token. Useful from CI or servers
+  without `wrangler login`. Requires:
     CLOUDFLARE_API_TOKEN
     CLOUDFLARE_ACCOUNT_ID
     D1_DATABASE_ID
 
-La carga es idempotente: `INSERT ... ON CONFLICT("ID") DO UPDATE`. Usa
-`--truncate` solo si quieres vaciar la tabla antes de cargar.
+Uploads are idempotent: `INSERT ... ON CONFLICT("ID") DO UPDATE`. Use
+`--truncate` only when you intentionally want to empty the table first.
 
-Uso:
+Usage:
     uv run --project tools/etl biblioteca-etl upload --remote
     uv run --project tools/etl biblioteca-etl upload --local
-    uv run --project tools/etl biblioteca-etl upload --remote --via api
+    uv run --project tools/etl biblioteca-etl upload --remote --method api
 """
 
 from __future__ import annotations
@@ -31,158 +31,160 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .rutas import APPS_WEB, SQLITE
-from .seed import LOTE_FILAS, TABLA, leer_filas, sentencias_inserts
+from .paths import SQLITE_DB, WEB_APP
+from .seed import BATCH_SIZE, TABLE, iter_insert_statements, read_rows
 
 API_URL = (
-    "https://api.cloudflare.com/client/v4/accounts/{cuenta}"
-    "/d1/database/{base}/query"
+    "https://api.cloudflare.com/client/v4/accounts/{account}"
+    "/d1/database/{database}/query"
 )
-MAX_REINTENTOS = 5
+MAX_RETRIES = 5
 
 
-def _ejecutar_wrangler(sql: str, *, database: str, local: bool) -> None:
-    """Ejecuta un archivo SQL temporal con `wrangler d1 execute`."""
+def _run_wrangler(sql: str, *, database: str, local: bool) -> None:
+    """Execute a temporary SQL file with `wrangler d1 execute`."""
     with tempfile.NamedTemporaryFile(
         "w", suffix=".sql", delete=False, encoding="utf-8"
-    ) as fh:
-        fh.write(sql)
-        ruta = Path(fh.name)
+    ) as handle:
+        handle.write(sql)
+        sql_path = Path(handle.name)
 
-    modo = "--local" if local else "--remote"
-    cmd = [
+    mode = "--local" if local else "--remote"
+    command = [
         "npx",
         "--no-install",
         "wrangler",
         "d1",
         "execute",
         database,
-        modo,
-        f"--file={ruta}",
+        mode,
+        f"--file={sql_path}",
     ]
     try:
-        resultado = subprocess.run(
-            cmd, cwd=APPS_WEB, capture_output=True, text=True, check=False
+        result = subprocess.run(
+            command, cwd=WEB_APP, capture_output=True, text=True, check=False
         )
-        if resultado.returncode != 0:
-            if resultado.stdout:
-                print(resultado.stdout)
-            if resultado.stderr:
-                print(resultado.stderr, file=sys.stderr)
+        if result.returncode != 0:
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print(result.stderr, file=sys.stderr)
             raise SystemExit(
-                f"`wrangler d1 execute` falló (código {resultado.returncode})."
+                f"`wrangler d1 execute` failed (exit code {result.returncode})."
             )
     finally:
-        ruta.unlink(missing_ok=True)
+        sql_path.unlink(missing_ok=True)
 
 
 def _api_config() -> tuple[str, str, str]:
     token = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
-    cuenta = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
-    base = os.environ.get("D1_DATABASE_ID", "").strip()
-    faltan = [
-        nombre
-        for nombre, valor in (
+    account = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
+    database = os.environ.get("D1_DATABASE_ID", "").strip()
+    missing = [
+        name
+        for name, value in (
             ("CLOUDFLARE_API_TOKEN", token),
-            ("CLOUDFLARE_ACCOUNT_ID", cuenta),
-            ("D1_DATABASE_ID", base),
+            ("CLOUDFLARE_ACCOUNT_ID", account),
+            ("D1_DATABASE_ID", database),
         )
-        if not valor
+        if not value
     ]
-    if faltan:
+    if missing:
         raise SystemExit(
-            "Faltan variables de entorno para --via api: " + ", ".join(faltan)
+            "Missing environment variables for --method api: " + ", ".join(missing)
         )
-    return token, cuenta, base
+    return token, account, database
 
 
-def _ejecutar_api(sql: str, *, token: str, cuenta: str, base: str) -> None:
-    """Ejecuta una sentencia con la API HTTP de D1, con reintentos."""
-    url = API_URL.format(cuenta=cuenta, base=base)
-    cuerpo = json.dumps({"sql": sql}).encode("utf-8")
-    cabeceras = {
+def _run_api(sql: str, *, token: str, account: str, database: str) -> None:
+    """Execute one statement through the D1 HTTP API, with retries."""
+    url = API_URL.format(account=account, database=database)
+    body = json.dumps({"sql": sql}).encode("utf-8")
+    headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
 
-    for intento in range(1, MAX_REINTENTOS + 1):
-        peticion = urllib.request.Request(
-            url, data=cuerpo, headers=cabeceras, method="POST"
+    for attempt in range(1, MAX_RETRIES + 1):
+        request = urllib.request.Request(
+            url, data=body, headers=headers, method="POST"
         )
         try:
-            with urllib.request.urlopen(peticion, timeout=90) as respuesta:
-                datos = json.load(respuesta)
-        except urllib.error.HTTPError as err:
-            detalle = err.read().decode("utf-8", errors="replace")
-            if err.code in (429, 500, 502, 503, 504) and intento < MAX_REINTENTOS:
-                time.sleep(2**intento)
+            with urllib.request.urlopen(request, timeout=90) as response:
+                data = json.load(response)
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace")
+            if error.code in (429, 500, 502, 503, 504) and attempt < MAX_RETRIES:
+                time.sleep(2**attempt)
                 continue
-            raise SystemExit(f"D1 API HTTP {err.code}: {detalle}") from err
-        except urllib.error.URLError as err:
-            if intento < MAX_REINTENTOS:
-                time.sleep(2**intento)
+            raise SystemExit(f"D1 API HTTP {error.code}: {detail}") from error
+        except urllib.error.URLError as error:
+            if attempt < MAX_RETRIES:
+                time.sleep(2**attempt)
                 continue
-            raise SystemExit(f"No se pudo conectar con la API de D1: {err}") from err
+            raise SystemExit(f"Could not connect to the D1 API: {error}") from error
 
-        if not datos.get("success"):
-            raise SystemExit(f"D1 API: {datos.get('errors') or datos}")
+        if not data.get("success"):
+            raise SystemExit(f"D1 API: {data.get('errors') or data}")
 
-        resultados = datos.get("result") or []
-        if resultados and not resultados[0].get("success", True):
-            raise SystemExit(f"D1 API: {resultados[0].get('error') or resultados[0]}")
+        results = data.get("result") or []
+        if results and not results[0].get("success", True):
+            raise SystemExit(f"D1 API: {results[0].get('error') or results[0]}")
         return
 
 
-def cargar(
-    sqlite: Path = SQLITE,
+def upload(
+    sqlite_path: Path = SQLITE_DB,
     *,
     local: bool = False,
-    via: str = "wrangler",
+    method: str = "wrangler",
     database: str = "biblioteca",
     truncate: bool = False,
     dry_run: Path | None = None,
-    lote: int = LOTE_FILAS,
+    batch_size: int = BATCH_SIZE,
     rebuild_fts: bool = False,
 ) -> int:
-    """Carga la tabla `Biblioteca` y devuelve el número de filas leídas."""
-    filas = leer_filas(sqlite)
-    sentencias: list[str] = []
+    """Load the `Biblioteca` table and return the number of rows read."""
+    rows = read_rows(sqlite_path)
+    statements: list[str] = []
     if truncate:
-        sentencias.append(f'DELETE FROM "{TABLA}";')
-    sentencias.extend(sentencias_inserts(filas, lote=lote))
+        statements.append(f'DELETE FROM "{TABLE}";')
+    statements.extend(iter_insert_statements(rows, batch_size=batch_size))
     if rebuild_fts:
-        sentencias.append(
+        statements.append(
             'INSERT INTO "biblioteca_fts"("biblioteca_fts") VALUES (\'rebuild\');'
         )
 
     if dry_run is not None:
         dry_run.parent.mkdir(parents=True, exist_ok=True)
-        dry_run.write_text("\n\n".join(sentencias) + "\n", encoding="utf-8")
-        print(f"{len(filas)} filas -> {dry_run} (sin subir)")
-        return len(filas)
+        dry_run.write_text("\n\n".join(statements) + "\n", encoding="utf-8")
+        print(f"{len(rows)} rows -> {dry_run} (nothing uploaded)")
+        return len(rows)
 
-    if via == "api":
+    if method == "api":
         if local:
-            raise SystemExit("--via api solo funciona contra D1 remoto")
-        token, cuenta, base = _api_config()
+            raise SystemExit("--method api only works against remote D1")
+        token, account, database_id = _api_config()
         print(
-            f"Subiendo {len(filas)} filas en {len(sentencias)} sentencias "
-            f"(API D1, base {base})…"
+            f"Uploading {len(rows)} rows in {len(statements)} statements "
+            f"(D1 API, database {database_id})..."
         )
-        for i, sentencia in enumerate(sentencias, 1):
-            _ejecutar_api(sentencia, token=token, cuenta=cuenta, base=base)
-            if i == len(sentencias) or i % 10 == 0:
-                print(f"  {i}/{len(sentencias)} sentencias")
-    elif via == "wrangler":
-        sql = "\n\n".join(sentencias)
-        modo = "local" if local else "remoto"
+        for index, statement in enumerate(statements, 1):
+            _run_api(
+                statement, token=token, account=account, database=database_id
+            )
+            if index == len(statements) or index % 10 == 0:
+                print(f"  {index}/{len(statements)} statements")
+    elif method == "wrangler":
+        sql = "\n\n".join(statements)
+        mode = "local" if local else "remote"
         print(
-            f"Subiendo {len(filas)} filas en {len(sentencias)} sentencias "
-            f"(wrangler, D1 {modo})…"
+            f"Uploading {len(rows)} rows in {len(statements)} statements "
+            f"(wrangler, D1 {mode})..."
         )
-        _ejecutar_wrangler(sql, database=database, local=local)
+        _run_wrangler(sql, database=database, local=local)
     else:
-        raise SystemExit(f"Modo de subida desconocido: {via}")
+        raise SystemExit(f"Unknown upload method: {method}")
 
-    print(f"OK: {len(filas)} filas cargadas en '{TABLA}'.")
-    return len(filas)
+    print(f"OK: {len(rows)} rows loaded into '{TABLE}'.")
+    return len(rows)

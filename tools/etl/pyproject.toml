@@ -1,7 +1,7 @@
 [project]
 name = "biblioteca"
 version = "0.2.0"
-description = "ETL de la biblioteca: Access -> SQLite/CSV -> Cloudflare D1"
+description = "Library ETL: Access -> SQLite/CSV -> Cloudflare D1"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
@@ -15,7 +15,7 @@ dependencies = [
 biblioteca-etl = "biblioteca.cli:main"
 biblioteca-export = "biblioteca.export:main"
 biblioteca-gui = "biblioteca.gui_tk:main"
-biblioteca-web = "biblioteca.gen_web:main"
+biblioteca-web = "biblioteca.generate_html:main"
 
 [build-system]
 requires = ["uv_build>=0.12.18,<0.13.0"]
@@ -34,5 +34,5 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
-# La plantilla HTML lleva CSS/JS en líneas largas a propósito.
-"src/biblioteca/gen_web.py" = ["E501"]
+# The HTML template intentionally has long CSS/JS lines.
+"src/biblioteca/generate_html.py" = ["E501"]

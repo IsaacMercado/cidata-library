@@ -1,194 +1,245 @@
 import { count, eq, getTableColumns, sql } from "drizzle-orm";
 import { Hono } from "hono";
-import { authApp, requireAuth, requireAuthPagina } from "./auth";
-import { crearDb, type AppVariables, type Env } from "./db/client";
-import { biblioteca, COLUMNAS_FTS } from "./db/schema";
-import { matchAvanzado, matchSimple } from "./fts";
+import { authRoutes, requireAuth, requireAuthPage } from "./auth";
+import { createDb, type AppVariables, type Env } from "./db/client";
+import { books, FTS_COLUMNS } from "./db/schema";
+import { buildAdvancedMatch, buildSimpleMatch } from "./fts";
 import {
-  esquemaId,
-  esquemaLista,
-  esquemaRegistro,
-  validar,
-} from "./validacion";
+  bookInputSchema,
+  idParamSchema,
+  listQuerySchema,
+  validate,
+} from "./validation";
 
-// Descriptores del formulario (mismo orden y etiquetas que el form Access).
-const CAMPOS = [
-  { clave: "id", columna: "ID", etiqueta: "ID", multilinea: false, soloLectura: true },
-  { clave: "cota", columna: "Cota", etiqueta: "Cota", multilinea: false, soloLectura: false },
-  { clave: "titulo", columna: "Titulo", etiqueta: "Titulo", multilinea: false, soloLectura: false },
-  { clave: "coautor", columna: "Coautor", etiqueta: "Coautor", multilinea: false, soloLectura: false },
-  { clave: "temaOMateria", columna: "Tema o Materia", etiqueta: "Tema o Materia", multilinea: false, soloLectura: false },
-  { clave: "series", columna: "Series", etiqueta: "Series", multilinea: false, soloLectura: false },
-  { clave: "paginas", columna: "Paginas", etiqueta: "Paginas", multilinea: false, soloLectura: false },
-  { clave: "isbn", columna: "ISBN", etiqueta: "ISBN", multilinea: false, soloLectura: false },
-  { clave: "notas", columna: "Notas", etiqueta: "Notas", multilinea: true, soloLectura: false },
-  { clave: "codigoCida", columna: "Codigo CIDA", etiqueta: "Codigo CIDA", multilinea: false, soloLectura: false },
-  { clave: "ejemplares", columna: "Ejemplares", etiqueta: "Ejemplares", multilinea: false, soloLectura: false },
-  { clave: "precioUnidad", columna: "Precio Unidad", etiqueta: "Precio Unidad", multilinea: false, soloLectura: false },
-  { clave: "precioTotal", columna: "Precio Total", etiqueta: "Precio Total", multilinea: false, soloLectura: false },
-  { clave: "donacion", columna: "Donacion", etiqueta: "Donacion", multilinea: false, soloLectura: false },
-  { clave: "textoFicha", columna: "Texto Ficha", etiqueta: "Texto Ficha:", multilinea: true, soloLectura: false },
-  { clave: "autor", columna: "Autor", etiqueta: "Autor:", multilinea: false, soloLectura: false },
-  { clave: "lujoRustico", columna: "Lujo/Rústico", etiqueta: "Lujo/Rústico:", multilinea: false, soloLectura: false },
+// Form descriptors (same order and labels as the original Access form).
+const FIELDS = [
+  { key: "id", column: "ID", label: "ID", multiline: false, readOnly: true },
+  { key: "callNumber", column: "Cota", label: "Cota", multiline: false, readOnly: false },
+  { key: "title", column: "Titulo", label: "Titulo", multiline: false, readOnly: false },
+  { key: "coauthor", column: "Coautor", label: "Coautor", multiline: false, readOnly: false },
+  { key: "subject", column: "Tema o Materia", label: "Tema o Materia", multiline: false, readOnly: false },
+  { key: "series", column: "Series", label: "Series", multiline: false, readOnly: false },
+  { key: "pages", column: "Paginas", label: "Paginas", multiline: false, readOnly: false },
+  { key: "isbn", column: "ISBN", label: "ISBN", multiline: false, readOnly: false },
+  { key: "notes", column: "Notas", label: "Notas", multiline: true, readOnly: false },
+  { key: "cidaCode", column: "Codigo CIDA", label: "Codigo CIDA", multiline: false, readOnly: false },
+  { key: "copies", column: "Ejemplares", label: "Ejemplares", multiline: false, readOnly: false },
+  { key: "unitPrice", column: "Precio Unidad", label: "Precio Unidad", multiline: false, readOnly: false },
+  { key: "totalPrice", column: "Precio Total", label: "Precio Total", multiline: false, readOnly: false },
+  { key: "donation", column: "Donacion", label: "Donacion", multiline: false, readOnly: false },
+  { key: "catalogText", column: "Texto Ficha", label: "Texto Ficha:", multiline: true, readOnly: false },
+  { key: "author", column: "Autor", label: "Autor:", multiline: false, readOnly: false },
+  { key: "binding", column: "Lujo/Rústico", label: "Lujo/Rústico:", multiline: false, readOnly: false },
 ] as const;
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
-app.route("/api/auth", authApp);
+// Basic CSRF defense for state-changing requests. Browsers send Origin on
+// cross-site POST/PUT/DELETE; JSON bodies also force a CORS preflight that this
+// Worker never approves. Non-browser clients without Origin keep working.
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+app.use("*", async (c, next) => {
+  if (!SAFE_METHODS.has(c.req.method)) {
+    const origin = c.req.header("Origin");
+    const requestOrigin = new URL(c.req.url).origin;
+    if (origin && origin !== requestOrigin) {
+      return c.json(
+        { error: "invalid_origin", message: "Origen no permitido." },
+        403,
+      );
+    }
+    const fetchSite = c.req.header("Sec-Fetch-Site");
+    if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") {
+      return c.json(
+        { error: "invalid_origin", message: "Origen no permitido." },
+        403,
+      );
+    }
+  }
+  await next();
+});
+
+app.route("/api/auth", authRoutes);
 
 app.get("/api/meta", (c) => {
   return c.json({
-    titulo: "Biblioteca",
-    campos: CAMPOS,
-    ftsColumnas: COLUMNAS_FTS,
-    limites: { likeBytes: 50, paginaMax: 100 },
+    title: "Biblioteca",
+    fields: FIELDS,
+    ftsColumns: FTS_COLUMNS,
+    limits: { likeBytes: 50, maxPageSize: 100 },
   });
 });
 
-app.get("/api/libros", validar("query", esquemaLista), async (c) => {
-  const db = crearDb(c.env);
-  const { q, modo, campos, orden, page, limit } = c.req.valid("query");
+app.get("/api/libros", validate("query", listQuerySchema), async (c) => {
+  const db = createDb(c.env);
+  const { q, mode, fields, order, page, limit } = c.req.valid("query");
   const offset = (page - 1) * limit;
-  const listaCampos = campos
+  const selectedFields = fields
     .split(",")
-    .map((s) => s.trim())
+    .map((value) => value.trim())
     .filter(Boolean);
 
-  // Sin busqueda: listado paginado (usa indices para el ORDER BY).
+  // No search: paginated listing (ORDER BY can use the indexes).
   if (!q.trim()) {
-    const [filas, total] = await Promise.all([
+    const [rows, totalRows] = await Promise.all([
       db
         .select()
-        .from(biblioteca)
-        .orderBy(biblioteca[orden])
+        .from(books)
+        .orderBy(books[order])
         .limit(limit)
         .offset(offset)
         .all(),
-      db.select({ n: count() }).from(biblioteca).all(),
+      db.select({ n: count() }).from(books).all(),
     ]);
-    const n = total[0]?.n ?? 0;
-    return c.json({ items: filas, total: n, page, pages: Math.ceil(n / limit), limit });
+    const total = totalRows[0]?.n ?? 0;
+    return c.json({
+      items: rows,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      limit,
+    });
   }
 
-  // Con busqueda: FTS5 con ranking BM25 (insensible a tildes).
+  // With search: FTS5 with BM25 ranking (accent-insensitive).
   const match =
-    modo === "avanzado"
-      ? matchAvanzado(q, listaCampos)
-      : matchSimple(q, listaCampos);
-  if (!match) return c.json({ error: "sin_terminos" }, 400);
+    mode === "advanced"
+      ? buildAdvancedMatch(q, selectedFields)
+      : buildSimpleMatch(q, selectedFields);
+  if (!match) return c.json({ error: "no_terms" }, 400);
 
   try {
     const rank = sql<number>`bm25("biblioteca_fts")`;
-    // Indice 6 = "Texto Ficha" (orden de columnas de la tabla virtual).
-    const fragmento = sql<string>`snippet("biblioteca_fts", 6, '<mark>', '</mark>', '…', 12)`;
-    const filas = await db
-      .select({ ...getTableColumns(biblioteca), rank, fragmento })
-      .from(biblioteca)
-      // FTS5 exige el NOMBRE de la tabla (no un alias) junto a MATCH.
+    // Index 6 = "Texto Ficha" (virtual table column order). Control characters
+    // mark the highlighted span; the client escapes the snippet and then turns
+    // them into <mark> tags, so catalog text can never inject HTML.
+    const fragment = sql<string>`snippet("biblioteca_fts", 6, '\u0001', '\u0002', '…', 12)`;
+    const rows = await db
+      .select({ ...getTableColumns(books), rank, fragment })
+      .from(books)
+      // FTS5 requires the actual table name (not an alias) next to MATCH.
       .innerJoin(
         sql`"biblioteca_fts"`,
         sql`"Biblioteca"."ID" = "biblioteca_fts"."rowid"`,
       )
       .where(sql`"biblioteca_fts" MATCH ${match}`)
-      .orderBy(orden === "id" ? rank : biblioteca[orden])
+      .orderBy(order === "id" ? rank : books[order])
       .limit(limit)
       .offset(offset)
       .all();
-    const total = await db.all<{ n: number }>(
+    const totalRows = await db.all<{ n: number }>(
       sql`SELECT COUNT(*) AS "n" FROM "biblioteca_fts" WHERE "biblioteca_fts" MATCH ${match}`,
     );
-    const n = total[0]?.n ?? 0;
-    return c.json({ items: filas, total: n, page, pages: Math.ceil(n / limit), limit });
-  } catch (e) {
-    console.error("FTS5:", e);
+    const total = totalRows[0]?.n ?? 0;
+    return c.json({
+      items: rows,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      limit,
+    });
+  } catch (error) {
+    console.error("FTS5:", error);
     return c.json(
-      { error: "expresion_invalida", mensaje: "Expresión de búsqueda no válida." },
+      {
+        error: "invalid_expression",
+        message: "Expresión de búsqueda no válida.",
+      },
       400,
     );
   }
 });
 
-app.get("/api/libros/:id", validar("param", esquemaId), async (c) => {
-  const db = crearDb(c.env);
+app.get("/api/libros/:id", validate("param", idParamSchema), async (c) => {
+  const db = createDb(c.env);
   const { id } = c.req.valid("param");
-  const filas = await db
+  const rows = await db
     .select()
-    .from(biblioteca)
-    .where(eq(biblioteca.id, id))
+    .from(books)
+    .where(eq(books.id, id))
     .limit(1)
     .all();
-  const fila = filas[0];
-  if (!fila) return c.json({ error: "no_encontrado" }, 404);
-  return c.json(fila);
+  const book = rows[0];
+  if (!book) return c.json({ error: "not_found" }, 404);
+  return c.json(book);
 });
 
-/** '' -> null; el esquema zod ya garantizo claves y tipos. */
-function aRegistro(valido: Record<string, string | number | undefined>) {
-  const datos: Record<string, string | null> = {};
-  for (const [k, v] of Object.entries(valido)) {
-    datos[k] = v === "" || v === undefined ? null : String(v);
+/** '' -> null; the zod schema already guarantees known keys and types. */
+function toRecord(
+  values: Record<string, string | number | undefined>,
+): Record<string, string | null> {
+  const record: Record<string, string | null> = {};
+  for (const [key, value] of Object.entries(values)) {
+    record[key] =
+      value === "" || value === undefined ? null : String(value);
   }
-  return datos;
+  return record;
 }
 
-app.post("/api/libros", requireAuth, validar("json", esquemaRegistro), async (c) => {
-  const db = crearDb(c.env);
-  const filas = await db
-    .insert(biblioteca)
-    .values(aRegistro(c.req.valid("json")) as typeof biblioteca.$inferInsert)
-    .returning({ id: biblioteca.id })
-    .all();
-  const creado = filas[0];
-  if (!creado) return c.json({ error: "insercion_fallida" }, 500);
-  return c.json(creado, 201);
-});
+app.post(
+  "/api/libros",
+  requireAuth,
+  validate("json", bookInputSchema),
+  async (c) => {
+    const db = createDb(c.env);
+    const rows = await db
+      .insert(books)
+      .values(toRecord(c.req.valid("json")) as typeof books.$inferInsert)
+      .returning({ id: books.id })
+      .all();
+    const created = rows[0];
+    if (!created) return c.json({ error: "insert_failed" }, 500);
+    return c.json(created, 201);
+  },
+);
 
 app.put(
   "/api/libros/:id",
   requireAuth,
-  validar("param", esquemaId),
-  validar("json", esquemaRegistro),
+  validate("param", idParamSchema),
+  validate("json", bookInputSchema),
   async (c) => {
-    const db = crearDb(c.env);
+    const db = createDb(c.env);
     const { id } = c.req.valid("param");
-    const filas = await db
-      .update(biblioteca)
-      .set(aRegistro(c.req.valid("json")) as Partial<typeof biblioteca.$inferInsert>)
-      .where(eq(biblioteca.id, id))
-      .returning({ id: biblioteca.id })
+    const rows = await db
+      .update(books)
+      .set(toRecord(c.req.valid("json")) as Partial<typeof books.$inferInsert>)
+      .where(eq(books.id, id))
+      .returning({ id: books.id })
       .all();
-    const actualizado = filas[0];
-    if (!actualizado) return c.json({ error: "no_encontrado" }, 404);
-    return c.json(actualizado);
+    const updated = rows[0];
+    if (!updated) return c.json({ error: "not_found" }, 404);
+    return c.json(updated);
   },
 );
 
 app.delete(
   "/api/libros/:id",
   requireAuth,
-  validar("param", esquemaId),
+  validate("param", idParamSchema),
   async (c) => {
-    const db = crearDb(c.env);
+    const db = createDb(c.env);
     const { id } = c.req.valid("param");
-    const filas = await db
-      .delete(biblioteca)
-      .where(eq(biblioteca.id, id))
-      .returning({ id: biblioteca.id })
+    const rows = await db
+      .delete(books)
+      .where(eq(books.id, id))
+      .returning({ id: books.id })
       .all();
-    if (!filas[0]) return c.json({ error: "no_encontrado" }, 404);
-    return c.json({ eliminado: true });
+    if (!rows[0]) return c.json({ error: "not_found" }, 404);
+    return c.json({ deleted: true });
   },
 );
 
-// Paginas de escritura: solo con sesion; si no, al login. Se sirven desde el
-// binding ASSETS (requiere run_worker_first en wrangler.jsonc). Aceptamos la
-// ruta limpia (/editar) y el .html antiguo.
-for (const pagina of ["/editar", "/editar.html", "/nuevo", "/nuevo.html"]) {
-  app.get(pagina, requireAuthPagina, async (c) => {
+// Write pages: session required, otherwise redirect to login. Served from the
+// ASSETS binding, which requires run_worker_first in wrangler.jsonc. Both the
+// clean route (/editar) and the legacy .html route are accepted.
+for (const page of ["/editar", "/editar.html", "/nuevo", "/nuevo.html"]) {
+  app.get(page, requireAuthPage, async (c) => {
     return c.env.ASSETS.fetch(c.req.raw);
   });
 }
 
-app.notFound((c) => c.json({ error: "no_encontrado" }, 404));
+app.notFound((c) => c.json({ error: "not_found" }, 404));
 
 export default app;

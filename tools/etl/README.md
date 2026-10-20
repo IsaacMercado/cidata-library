@@ -39,7 +39,7 @@ uv run --project tools/etl biblioteca-etl upload --local
 | `biblioteca-etl sql [sqlite] [salida]` | SQLite → SQL con `INSERT ... ON CONFLICT`. |
 | `biblioteca-etl upload --remote` | Carga en D1 remoto usando `wrangler`. |
 | `biblioteca-etl upload --local` | Carga en la D1 local de Wrangler. |
-| `biblioteca-etl upload --remote --via api` | Carga por API HTTP (CI/servidores). |
+| `biblioteca-etl upload --remote --method api` | Carga por API HTTP (CI/servidores). |
 | `biblioteca-etl upload --dry-run archivo.sql` | Genera el SQL sin subir. |
 | `biblioteca-etl all` | `export` + `sql` en un paso. |
 | `biblioteca-gui` | Réplica exploratoria del formulario en Tkinter. |
@@ -51,7 +51,7 @@ uv run --project tools/etl biblioteca-etl upload --local
 export CLOUDFLARE_API_TOKEN=...
 export CLOUDFLARE_ACCOUNT_ID=...
 export D1_DATABASE_ID=...   # database_id de apps/web/wrangler.jsonc
-uv run --project tools/etl biblioteca-etl upload --remote --via api
+uv run --project tools/etl biblioteca-etl upload --remote --method api
 ```
 
 La carga por API envía una sentencia cada vez (lotes de ~100 filas o 90 KB) y

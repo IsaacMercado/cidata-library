@@ -1,13 +1,13 @@
-"""CLI del ETL de la biblioteca.
+"""ETL CLI for the library.
 
-Subcomandos:
+Subcommands:
 
-- `export`: Access (.accdb) -> CSV + SQLite + esquema SQL.
-- `sql`: SQLite -> SQL idempotente para D1.
-- `upload`: SQLite -> D1 local o remoto.
+- `export`: Access (.accdb) -> CSV + SQLite + SQL schema.
+- `sql`: SQLite -> idempotent SQL for D1.
+- `upload`: SQLite -> local or remote D1.
 - `all`: `export` + `sql`.
 
-Uso:
+Usage:
     uv run --project tools/etl biblioteca-etl --help
 """
 
@@ -16,98 +16,112 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .d1 import cargar
-from .export import exportar_todo
-from .rutas import ACCBD, DERIVADOS, SEED, SQLITE
-from .seed import LOTE_FILAS, generar_sql
+from .d1 import upload
+from .export import export_all
+from .paths import ACCESS_DB, DERIVED_DIR, SEED_SQL, SQLITE_DB
+from .seed import BATCH_SIZE, generate_sql
 
 
 def _cmd_export(args: argparse.Namespace) -> None:
-    exportar_todo(Path(args.accdb), Path(args.salida))
+    export_all(Path(args.accdb), Path(args.output))
 
 
 def _cmd_sql(args: argparse.Namespace) -> None:
-    generar_sql(Path(args.sqlite), Path(args.salida), lote=args.lote)
+    generate_sql(
+        Path(args.sqlite), Path(args.output), batch_size=args.batch_size
+    )
 
 
 def _cmd_upload(args: argparse.Namespace) -> None:
-    cargar(
+    upload(
         Path(args.sqlite),
         local=args.local,
-        via=args.via,
+        method=args.method,
         database=args.database,
         truncate=args.truncate,
         dry_run=Path(args.dry_run) if args.dry_run else None,
-        lote=args.lote,
+        batch_size=args.batch_size,
         rebuild_fts=args.rebuild_fts,
     )
 
 
 def _cmd_all(args: argparse.Namespace) -> None:
-    exportar_todo(Path(args.accdb), Path(args.salida))
-    generar_sql(Path(args.salida) / "biblioteca.sqlite", Path(args.seed), lote=args.lote)
+    export_all(Path(args.accdb), Path(args.output))
+    generate_sql(
+        Path(args.output) / "biblioteca.sqlite",
+        Path(args.seed),
+        batch_size=args.batch_size,
+    )
 
 
-def construir_parser() -> argparse.ArgumentParser:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="biblioteca-etl",
-        description="Extracción desde Access y carga en Cloudflare D1.",
+        description="Extract from Access and load into Cloudflare D1.",
     )
-    sub = parser.add_subparsers(dest="comando", required=True)
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    p_export = sub.add_parser("export", help="Access -> CSV/SQLite/esquema")
-    p_export.add_argument("accdb", nargs="?", default=str(ACCBD))
-    p_export.add_argument("salida", nargs="?", default=str(DERIVADOS))
-    p_export.set_defaults(func=_cmd_export)
+    export_parser = subparsers.add_parser(
+        "export", help="Access -> CSV/SQLite/schema"
+    )
+    export_parser.add_argument("accdb", nargs="?", default=str(ACCESS_DB))
+    export_parser.add_argument("output", nargs="?", default=str(DERIVED_DIR))
+    export_parser.set_defaults(func=_cmd_export)
 
-    p_sql = sub.add_parser("sql", help="SQLite -> SQL idempotente para D1")
-    p_sql.add_argument("sqlite", nargs="?", default=str(SQLITE))
-    p_sql.add_argument("salida", nargs="?", default=str(SEED))
-    p_sql.add_argument("--lote", type=int, default=LOTE_FILAS)
-    p_sql.set_defaults(func=_cmd_sql)
+    sql_parser = subparsers.add_parser(
+        "sql", help="SQLite -> idempotent SQL for D1"
+    )
+    sql_parser.add_argument("sqlite", nargs="?", default=str(SQLITE_DB))
+    sql_parser.add_argument("output", nargs="?", default=str(SEED_SQL))
+    sql_parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    sql_parser.set_defaults(func=_cmd_sql)
 
-    p_up = sub.add_parser("upload", help="SQLite -> D1 local o remoto")
-    p_up.add_argument("sqlite", nargs="?", default=str(SQLITE))
-    destino = p_up.add_mutually_exclusive_group(required=True)
-    destino.add_argument("--local", action="store_true", help="D1 local de Wrangler")
-    destino.add_argument("--remote", action="store_true", help="D1 remoto")
-    p_up.add_argument(
-        "--via",
+    upload_parser = subparsers.add_parser(
+        "upload", help="SQLite -> local or remote D1"
+    )
+    upload_parser.add_argument("sqlite", nargs="?", default=str(SQLITE_DB))
+    target = upload_parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--local", action="store_true", help="local Wrangler D1")
+    target.add_argument("--remote", action="store_true", help="remote D1")
+    upload_parser.add_argument(
+        "--method",
         choices=["wrangler", "api"],
         default="wrangler",
-        help="wrangler (sesión iniciada) o api (token + IDs por entorno)",
+        help="wrangler (logged in) or api (token + IDs from the environment)",
     )
-    p_up.add_argument("--database", default="biblioteca", help="Nombre de la base D1")
-    p_up.add_argument(
+    upload_parser.add_argument(
+        "--database", default="biblioteca", help="D1 database name"
+    )
+    upload_parser.add_argument(
         "--truncate",
         action="store_true",
-        help="Vacía la tabla antes de cargar (¡destructivo!)",
+        help="empty the table before loading (destructive!)",
     )
-    p_up.add_argument(
+    upload_parser.add_argument(
         "--dry-run",
-        metavar="ARCHIVO",
-        help="Escribe el SQL en ARCHIVO sin subir nada",
+        metavar="FILE",
+        help="write the SQL to FILE without uploading anything",
     )
-    p_up.add_argument("--lote", type=int, default=LOTE_FILAS)
-    p_up.add_argument(
+    upload_parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    upload_parser.add_argument(
         "--rebuild-fts",
         action="store_true",
-        help="Reconstruye el índice FTS5 al terminar",
+        help="rebuild the FTS5 index when finished",
     )
-    p_up.set_defaults(func=_cmd_upload)
+    upload_parser.set_defaults(func=_cmd_upload)
 
-    p_all = sub.add_parser("all", help="export + sql")
-    p_all.add_argument("accdb", nargs="?", default=str(ACCBD))
-    p_all.add_argument("salida", nargs="?", default=str(DERIVADOS))
-    p_all.add_argument("--seed", default=str(SEED))
-    p_all.add_argument("--lote", type=int, default=LOTE_FILAS)
-    p_all.set_defaults(func=_cmd_all)
+    all_parser = subparsers.add_parser("all", help="export + sql")
+    all_parser.add_argument("accdb", nargs="?", default=str(ACCESS_DB))
+    all_parser.add_argument("output", nargs="?", default=str(DERIVED_DIR))
+    all_parser.add_argument("--seed", default=str(SEED_SQL))
+    all_parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    all_parser.set_defaults(func=_cmd_all)
 
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
-    args = construir_parser().parse_args(argv)
+    args = build_parser().parse_args(argv)
     args.func(args)
 
 

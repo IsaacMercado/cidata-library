@@ -18,40 +18,40 @@
   <section class="tarjeta">
     <h1>Editar registro</h1>
     <p class="subtitulo">Solo usuarios con sesión iniciada.</p>
-    <div id="aviso" class="aviso" hidden></div>
-    <div id="form"></div>
+    <div id="notice" class="aviso" hidden></div>
+    <div id="form-container"></div>
     <div class="barra-acciones">
-      <button id="guardar" type="button">Guardar cambios</button>
-      <a class="btn btn-secundario" id="volver" href="#">Cancelar</a>
+      <button id="save-button" type="button">Guardar cambios</button>
+      <a class="btn btn-secundario" id="back-link" href="#">Cancelar</a>
     </div>
   </section>
 </main>
 <script type="module">
-import { api, construirFormulario, mostrarAviso } from "/app.js";
+import { api, buildForm, showNotice } from "/app.js";
 
 const id = new URLSearchParams(location.search).get("id");
-document.getElementById("volver").href = "/libro?id=" + encodeURIComponent(id);
+document.getElementById("back-link").href = "/libro?id=" + encodeURIComponent(id);
 
 async function init() {
-  let recoger;
+  let collect;
   try {
-    const f = await api("/api/libros/" + encodeURIComponent(id));
-    recoger = construirFormulario(document.getElementById("form"), f);
-  } catch (e) {
-    mostrarAviso("aviso", e.message, true);
+    const book = await api("/api/libros/" + encodeURIComponent(id));
+    collect = buildForm(document.getElementById("form-container"), book);
+  } catch (error) {
+    showNotice("notice", error.message, true);
     return;
   }
-  document.getElementById("guardar").addEventListener("click", async () => {
+  document.getElementById("save-button").addEventListener("click", async () => {
     try {
       await api("/api/libros/" + encodeURIComponent(id), {
         method: "PUT",
-        body: JSON.stringify(recoger()),
+        body: JSON.stringify(collect()),
       });
       location.href = "/libro?id=" + encodeURIComponent(id);
-    } catch (e) {
-      mostrarAviso("aviso", e.status === 401
+    } catch (error) {
+      showNotice("notice", error.status === 401
         ? "Para guardar debes iniciar sesión."
-        : e.message, true);
+        : error.message, true);
     }
   });
 }

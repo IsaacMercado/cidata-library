@@ -6,10 +6,10 @@ export interface Env {
 }
 
 export interface AppVariables {
-  usuario: { id: number; email: string };
+  user: { id: number; email: string };
 }
 
-/** Cliente Drizzle ligado al binding D1 del Worker. */
-export function crearDb(env: Env) {
+/** Drizzle client bound to the Worker's D1 binding. */
+export function createDb(env: Env) {
   return drizzle(env.DB);
 }

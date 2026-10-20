@@ -18,8 +18,8 @@
   <section class="tarjeta login-card">
     <h1>Iniciar sesión</h1>
     <p class="subtitulo">Necesaria para crear, editar o eliminar registros. La consulta es pública.</p>
-    <div id="aviso" class="aviso" hidden></div>
-    <form id="login">
+    <div id="notice" class="aviso" hidden></div>
+    <form id="login-form">
       <div class="fila"><label for="email">Email</label><input id="email" type="email" name="email" required autocomplete="username" placeholder="tu@email.com"></div>
       <div class="fila"><label for="password">Contraseña</label><input id="password" type="password" name="password" required autocomplete="current-password"></div>
       <div class="barra-acciones"><button type="submit">Entrar</button></div>
@@ -27,23 +27,27 @@
   </section>
 </main>
 <script type="module">
-import { mostrarAviso } from "/app.js";
+import { showNotice } from "/app.js";
 
-const next = new URLSearchParams(location.search).get("next") || "/";
-document.getElementById("login").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const datos = Object.fromEntries(new FormData(e.target));
-  const r = await fetch("/api/auth/login", {
+const nextPath = new URLSearchParams(location.search).get("next") || "/";
+
+document.getElementById("login-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.target));
+  const response = await fetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(datos),
+    body: JSON.stringify(data),
   });
-  if (r.ok) {
-    const destino = next.startsWith("/") && !next.startsWith("//") ? next : "/";
-    location.href = destino;
+  if (response.ok) {
+    // Only redirect within this origin (prevents open redirects).
+    const target = new URL(nextPath, location.origin);
+    location.href = target.origin === location.origin
+      ? target.pathname + target.search + target.hash
+      : "/";
   } else {
-    const cuerpo = await r.json().catch(() => ({}));
-    mostrarAviso("aviso", cuerpo.mensaje || "No se pudo entrar.", true);
+    const body = await response.json().catch(() => ({}));
+    showNotice("notice", body.message || "No se pudo entrar.", true);
   }
 });
 </script>

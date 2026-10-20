@@ -2,65 +2,88 @@ import { eq, lt } from "drizzle-orm";
 import { deleteCookie, setCookie } from "hono/cookie";
 import { Hono } from "hono";
 import type { Context, Next } from "hono";
-import { crearDb, type AppVariables, type Env } from "./db/client";
-import { sesiones, usuarios } from "./db/schema";
-import { esquemaLogin, validar } from "./validacion";
+import { createDb, type AppVariables, type Env } from "./db/client";
+import { sessions, users } from "./db/schema";
+import { loginSchema, validate } from "./validation";
 
-export const COOKIE_SESION = "biblio_sesion";
-const SESION_SEGUNDOS = 7 * 24 * 3600;
-// 10k iteraciones ~= 2-5 ms de CPU: el plan gratuito limita a 10 ms/peticion.
-// Solo se paga en el login (la sesion dura 7 dias); el resto de peticiones
-// solo hacen 1 lectura D1 (I/O, no cuenta como CPU) + 1 sha256.
-// Mantener sincronizado con scripts/crear_usuario.mjs.
-const PBKDF2_ITER = 10_000;
+// Opaque, server-side sessions: the cookie contains a 256-bit random token
+// and D1 stores only its SHA-256. There is no signing key because there is
+// nothing to sign or verify cryptographically; the database row is the
+// authority. See the security section in README.md.
+const SESSION_COOKIE_DEV = "biblio_session";
+const SESSION_COOKIE_PROD = "__Host-biblio_session";
+const SESSION_TTL_SECONDS = 7 * 24 * 3600;
+// 10k iterations ~= 2-5 ms of CPU: the free plan caps each request at 10 ms.
+// Only paid on login (sessions last 7 days); all other requests do one D1
+// read plus one SHA-256.
+// Keep in sync with tools/create_user.mjs.
+const PBKDF2_ITERATIONS = 10_000;
 
-// --- Primitivas (WebCrypto; mismos parametros que scripts/crear_usuario.mjs)
+// Valid PBKDF2 hash used when the email does not exist, so both branches pay
+// the same CPU cost (prevents trivial email enumeration through timing).
+const DUMMY_PASSWORD_HASH =
+  "pbkdf2$10000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
-function aBase64(bytes: Uint8Array): string {
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s);
+// --- Primitives (WebCrypto; same parameters as tools/create_user.mjs)
+
+function toBase64(bytes: Uint8Array): string {
+  let result = "";
+  for (const byte of bytes) result += String.fromCharCode(byte);
+  return btoa(result);
 }
 
-function deBase64(s: string): Uint8Array {
-  const bin = atob(s);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
+function fromBase64(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
-function aHex(bytes: Uint8Array): string {
-  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+function toHex(bytes: Uint8Array): string {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** Lee una cookie de la cabecera (hono/cookie solo acepta Context). */
-function leerCookie(peticion: Request, nombre: string): string | undefined {
-  const cabecera = peticion.headers.get("Cookie");
-  if (!cabecera) return undefined;
-  for (const parte of cabecera.split(";")) {
-    const i = parte.indexOf("=");
-    if (i < 0) continue;
-    if (parte.slice(0, i).trim() === nombre) {
-      return decodeURIComponent(parte.slice(i + 1).trim());
+/** Read a cookie header (hono/cookie only accepts a Context). */
+function readCookie(request: Request, name: string): string | undefined {
+  const header = request.headers.get("Cookie");
+  if (!header) return undefined;
+  for (const part of header.split(";")) {
+    const separator = part.indexOf("=");
+    if (separator < 0) continue;
+    if (part.slice(0, separator).trim() === name) {
+      try {
+        return decodeURIComponent(part.slice(separator + 1).trim());
+      } catch {
+        return undefined;
+      }
     }
   }
   return undefined;
 }
 
-async function sha256Hex(texto: string): Promise<string> {
+function isSecureRequest(request: Request): boolean {
+  return new URL(request.url).protocol === "https:";
+}
+
+function sessionCookieName(secure: boolean): string {
+  // __Host- requires Secure, Path=/ and no Domain attribute.
+  return secure ? SESSION_COOKIE_PROD : SESSION_COOKIE_DEV;
+}
+
+async function sha256Hex(text: string): Promise<string> {
   const hash = await crypto.subtle.digest(
     "SHA-256",
-    new TextEncoder().encode(texto),
+    new TextEncoder().encode(text),
   );
-  return aHex(new Uint8Array(hash));
+  return toHex(new Uint8Array(hash));
 }
 
 async function pbkdf2(
   password: string,
-  sal: Uint8Array,
-  iter: number,
+  salt: Uint8Array,
+  iterations: number,
 ): Promise<Uint8Array> {
-  const clave = await crypto.subtle.importKey(
+  const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(password),
     "PBKDF2",
@@ -68,176 +91,222 @@ async function pbkdf2(
     ["deriveBits"],
   );
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: sal, iterations: iter, hash: "SHA-256" },
-    clave,
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    key,
     256,
   );
   return new Uint8Array(bits);
 }
 
-/** Formato: pbkdf2$iteraciones$sal_base64$hash_base64 */
+/** Format: pbkdf2$iterations$salt_base64$hash_base64 */
 export async function hashPassword(password: string): Promise<string> {
-  const sal = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await pbkdf2(password, sal, PBKDF2_ITER);
-  return `pbkdf2$${PBKDF2_ITER}$${aBase64(sal)}$${aBase64(hash)}`;
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const hash = await pbkdf2(password, salt, PBKDF2_ITERATIONS);
+  return `pbkdf2$${PBKDF2_ITERATIONS}$${toBase64(salt)}$${toBase64(hash)}`;
 }
 
-function comparacionConstante(a: string, b: string): boolean {
+function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
+  let difference = 0;
+  for (let i = 0; i < a.length; i++) {
+    difference |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return difference === 0;
 }
 
-export async function verificarPassword(
+export async function verifyPassword(
   password: string,
-  almacenado: string,
+  stored: string,
 ): Promise<boolean> {
-  const partes = almacenado.split("$");
-  if (partes.length !== 4 || partes[0] !== "pbkdf2") return false;
-  const iter = Number.parseInt(partes[1] ?? "", 10);
-  if (!Number.isInteger(iter) || iter <= 0 || iter > 1_000_000) return false;
-  let sal: Uint8Array;
+  const parts = stored.split("$");
+  if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
+  const iterations = Number.parseInt(parts[1] ?? "", 10);
+  if (!Number.isInteger(iterations) || iterations <= 0 || iterations > 1_000_000) {
+    return false;
+  }
+  let salt: Uint8Array;
   try {
-    sal = deBase64(partes[2] ?? "");
+    salt = fromBase64(parts[2] ?? "");
   } catch {
     return false;
   }
-  const hash = await pbkdf2(password, sal, iter);
-  return comparacionConstante(
-    `pbkdf2$${iter}$${partes[2]}$${aBase64(hash)}`,
-    almacenado,
+  const hash = await pbkdf2(password, salt, iterations);
+  return constantTimeEqual(
+    `pbkdf2$${iterations}$${parts[2]}$${toBase64(hash)}`,
+    stored,
   );
 }
 
-// --- Sesiones en D1 + cookie httpOnly
+// --- Sessions in D1 + httpOnly cookie
 
-export interface Sesion {
+export interface SessionUser {
   id: number;
   email: string;
 }
 
-function esHex64(s: string): boolean {
-  return /^[0-9a-f]{64}$/.test(s);
+function isHex64(value: string): boolean {
+  return /^[0-9a-f]{64}$/.test(value);
 }
 
-export async function sesionActual(
-  db: ReturnType<typeof crearDb>,
-  peticion: Request,
-): Promise<Sesion | null> {
-  const token = leerCookie(peticion, COOKIE_SESION);
-  if (!token || !esHex64(token)) return null;
-  const filas = await db
-    .select({ id: usuarios.id, email: usuarios.email, expira: sesiones.expira })
-    .from(sesiones)
-    .innerJoin(usuarios, eq(sesiones.usuarioId, usuarios.id))
-    .where(eq(sesiones.token, await sha256Hex(token)))
+export async function getCurrentSession(
+  db: ReturnType<typeof createDb>,
+  request: Request,
+): Promise<SessionUser | null> {
+  const secure = isSecureRequest(request);
+  const token =
+    readCookie(request, sessionCookieName(secure)) ??
+    readCookie(request, SESSION_COOKIE_DEV) ??
+    readCookie(request, SESSION_COOKIE_PROD);
+  if (!token || !isHex64(token)) return null;
+
+  const rows = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      expiresAt: sessions.expiresAt,
+    })
+    .from(sessions)
+    .innerJoin(users, eq(sessions.userId, users.id))
+    .where(eq(sessions.token, await sha256Hex(token)))
     .limit(1)
     .all();
-  const fila = filas[0];
-  if (!fila || fila.expira <= Math.floor(Date.now() / 1000)) return null;
-  return { id: fila.id, email: fila.email };
+
+  const row = rows[0];
+  if (!row || row.expiresAt <= Math.floor(Date.now() / 1000)) return null;
+  return { id: row.id, email: row.email };
 }
 
-function ponerCookie(
+function setSessionCookie(
   c: Context,
   token: string | null,
-  seguro: boolean,
+  secure: boolean,
 ): void {
+  const name = sessionCookieName(secure);
   if (token === null) {
-    deleteCookie(c, COOKIE_SESION, { path: "/" });
+    deleteCookie(c, name, { path: "/", secure });
+    // Also clear the other cookie name (local/production switch).
+    const otherName =
+      name === SESSION_COOKIE_PROD ? SESSION_COOKIE_DEV : SESSION_COOKIE_PROD;
+    deleteCookie(c, otherName, {
+      path: "/",
+      secure: otherName === SESSION_COOKIE_PROD,
+    });
     return;
   }
-  setCookie(c, COOKIE_SESION, token, {
+  setCookie(c, name, token, {
     httpOnly: true,
     path: "/",
     sameSite: "Lax",
-    secure: seguro,
-    maxAge: SESION_SEGUNDOS,
+    secure,
+    maxAge: SESSION_TTL_SECONDS,
   });
 }
 
-/** Protege la API: sin sesion valida responde 401 JSON. */
+/** Protect the API: returns 401 JSON without a valid session. */
 export async function requireAuth(
   c: Context<{ Bindings: Env; Variables: AppVariables }>,
   next: Next,
 ): Promise<Response | void> {
-  const db = crearDb(c.env);
-  const sesion = await sesionActual(db, c.req.raw);
-  if (!sesion) {
+  const db = createDb(c.env);
+  const session = await getCurrentSession(db, c.req.raw);
+  if (!session) {
     return c.json(
       {
         error: "auth_required",
-        mensaje: "Inicia sesión para escribir. Ve a /login.",
+        message: "Inicia sesión para escribir. Ve a /login.",
       },
       401,
     );
   }
-  c.set("usuario", sesion);
+  c.set("user", session);
   await next();
 }
 
-/** Protege una pagina HTML: sin sesion redirige al login (conserva la URL). */
-export async function requireAuthPagina(
+/** Protect an HTML page: redirect to login and preserve the target URL. */
+export async function requireAuthPage(
   c: Context<{ Bindings: Env; Variables: AppVariables }>,
   next: Next,
 ): Promise<Response | void> {
-  const db = crearDb(c.env);
-  const sesion = await sesionActual(db, c.req.raw);
-  if (!sesion) {
+  const db = createDb(c.env);
+  const session = await getCurrentSession(db, c.req.raw);
+  if (!session) {
     const url = new URL(c.req.url);
-    const destino = `/login?next=${encodeURIComponent(url.pathname + url.search)}`;
-    return c.redirect(destino, 302);
+    const target = `/login?next=${encodeURIComponent(url.pathname + url.search)}`;
+    return c.redirect(target, 302);
   }
   await next();
 }
 
-// --- Sub-app /api/auth
+// --- /api/auth sub-app
 
-export const authApp = new Hono<{ Bindings: Env; Variables: AppVariables }>();
+export const authRoutes = new Hono<{
+  Bindings: Env;
+  Variables: AppVariables;
+}>();
 
-authApp.post("/login", validar("json", esquemaLogin), async (c) => {
-  const db = crearDb(c.env);
+authRoutes.post("/login", validate("json", loginSchema), async (c) => {
+  const db = createDb(c.env);
   const { email, password } = c.req.valid("json");
-  const filas = await db
+  const normalizedEmail = email.toLowerCase();
+
+  const rows = await db
     .select()
-    .from(usuarios)
-    .where(eq(usuarios.email, email))
+    .from(users)
+    .where(eq(users.email, normalizedEmail))
     .limit(1)
     .all();
-  const usuario = filas[0];
-  if (!usuario || !(await verificarPassword(password, usuario.hash))) {
-    return c.json({ error: "credenciales", mensaje: "Email o contraseña incorrectos." }, 401);
+  const user = rows[0];
+
+  // Always run PBKDF2, even for unknown emails (timing equalization).
+  const valid = await verifyPassword(
+    password,
+    user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+  );
+  if (!user || !valid) {
+    return c.json(
+      { error: "invalid_credentials", message: "Email o contraseña incorrectos." },
+      401,
+    );
   }
-  const crudo = crypto.getRandomValues(new Uint8Array(32));
-  const token = aHex(crudo);
-  const ahora = Math.floor(Date.now() / 1000);
-  await db.delete(sesiones).where(lt(sesiones.expira, ahora)).run();
+
+  const rawToken = crypto.getRandomValues(new Uint8Array(32));
+  const token = toHex(rawToken);
+  const now = Math.floor(Date.now() / 1000);
+
+  await db.delete(sessions).where(lt(sessions.expiresAt, now)).run();
   await db
-    .insert(sesiones)
+    .insert(sessions)
     .values({
       token: await sha256Hex(token),
-      usuarioId: usuario.id,
-      expira: ahora + SESION_SEGUNDOS,
+      userId: user.id,
+      expiresAt: now + SESSION_TTL_SECONDS,
     })
     .run();
-  ponerCookie(c, token, new URL(c.req.url).protocol === "https:");
-  return c.json({ email: usuario.email });
+
+  setSessionCookie(c, token, isSecureRequest(c.req.raw));
+  return c.json({ email: user.email });
 });
 
-authApp.post("/logout", async (c) => {
-  const db = crearDb(c.env);
-  const token = leerCookie(c.req.raw, COOKIE_SESION);
-  if (token && esHex64(token)) {
-    await db.delete(sesiones).where(eq(sesiones.token, await sha256Hex(token))).run();
+authRoutes.post("/logout", async (c) => {
+  const db = createDb(c.env);
+  const secure = isSecureRequest(c.req.raw);
+  const token =
+    readCookie(c.req.raw, sessionCookieName(secure)) ??
+    readCookie(c.req.raw, SESSION_COOKIE_DEV) ??
+    readCookie(c.req.raw, SESSION_COOKIE_PROD);
+  if (token && isHex64(token)) {
+    await db
+      .delete(sessions)
+      .where(eq(sessions.token, await sha256Hex(token)))
+      .run();
   }
-  ponerCookie(c, null, false);
-  return c.json({ salio: true });
+  setSessionCookie(c, null, secure);
+  return c.json({ loggedOut: true });
 });
 
-authApp.get("/yo", async (c) => {
-  const db = crearDb(c.env);
-  const sesion = await sesionActual(db, c.req.raw);
-  if (!sesion) return c.json({ error: "auth_required" }, 401);
-  return c.json({ email: sesion.email });
+authRoutes.get("/me", async (c) => {
+  const db = createDb(c.env);
+  const session = await getCurrentSession(db, c.req.raw);
+  if (!session) return c.json({ error: "auth_required" }, 401);
+  return c.json({ email: session.email });
 });

@@ -24,7 +24,7 @@
     "db:migrate:remote": "npm run db:migrate:remote -w @biblioteca/web",
     "db:seed:local": "npm run db:seed:local -w @biblioteca/web",
     "db:seed:remote": "npm run db:seed:remote -w @biblioteca/web",
-    "db:admin": "node tools/crear_usuario.mjs",
+    "db:admin": "node tools/create_user.mjs",
     "data:extract": "uv run --project tools/etl biblioteca-etl export",
     "data:sql": "uv run --project tools/etl biblioteca-etl sql",
     "data:upload": "uv run --project tools/etl biblioteca-etl upload",

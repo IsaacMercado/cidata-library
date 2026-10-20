@@ -1,19 +1,19 @@
-"""Rutas compartidas del repositorio.
+"""Shared repository paths.
 
-El ETL se ejecuta desde el repositorio (no está pensado para instalarse como
-paquete global), así que las rutas se calculan a partir de este archivo:
+The ETL runs from the repository (it is not intended to be installed as a
+global package), so paths are derived from this file:
 
-    tools/etl/src/biblioteca/rutas.py -> raíz del repositorio
+    tools/etl/src/biblioteca/paths.py -> repository root
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-RAIZ = Path(__file__).resolve().parents[4]
-DATOS = RAIZ / "data"
-DERIVADOS = DATOS / "derived"
-ACCBD = DATOS / "biblioteca.accdb"
-SQLITE = DERIVADOS / "biblioteca.sqlite"
-SEED = DERIVADOS / "seed.sql"
-APPS_WEB = RAIZ / "apps" / "web"
+ROOT = Path(__file__).resolve().parents[4]
+DATA_DIR = ROOT / "data"
+DERIVED_DIR = DATA_DIR / "derived"
+ACCESS_DB = DATA_DIR / "biblioteca.accdb"
+SQLITE_DB = DERIVED_DIR / "biblioteca.sqlite"
+SEED_SQL = DERIVED_DIR / "seed.sql"
+WEB_APP = ROOT / "apps" / "web"

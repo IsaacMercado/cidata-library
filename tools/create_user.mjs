@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// Crea data/derived/admin.sql con un INSERT/UPDATE de usuarios.
-// Usa los mismos parámetros que apps/web/src/auth.ts
-// (PBKDF2-SHA256, 10.000 iteraciones).
+// Create data/derived/admin.sql with an INSERT/UPDATE for a user.
+// Uses the same parameters as apps/web/src/auth.ts
+// (PBKDF2-SHA256, 10,000 iterations).
 //
-// Uso (desde la raíz del repo):
-//   npm run db:admin -- tu@email.com
-// y luego:
+// Usage (from the repository root):
+//   npm run db:admin -- you@email.com
+// then:
 //   npx wrangler d1 execute biblioteca --remote --file=./data/derived/admin.sql
 //
-// La contraseña se pide por stdin para no dejarla en el historial.
+// The password is read from stdin so it never ends up in shell history.
 
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline";
@@ -17,31 +17,31 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Ver la nota de presupuesto de CPU en apps/web/src/auth.ts
-// (plan gratuito: 10 ms por petición).
-const ITER = 10_000;
+// See the CPU budget note in apps/web/src/auth.ts
+// (free plan: 10 ms per request).
+const PBKDF2_ITERATIONS = 10_000;
 
-function pregunta(texto, oculto = false) {
-  const rl = createInterface({
+function ask(prompt, hidden = false) {
+  const readline = createInterface({
     input: stdin,
-    output: oculto ? undefined : stdout,
+    output: hidden ? undefined : stdout,
     terminal: true,
   });
-  return new Promise((res) =>
-    rl.question(texto, (r) => {
-      rl.close();
-      res(r);
+  return new Promise((resolve) =>
+    readline.question(prompt, (answer) => {
+      readline.close();
+      resolve(answer);
     }),
   );
 }
 
-function aBase64(bytes) {
+function toBase64(bytes) {
   return Buffer.from(bytes).toString("base64");
 }
 
 async function hashPassword(password) {
-  const sal = webcrypto.getRandomValues(new Uint8Array(16));
-  const clave = await webcrypto.subtle.importKey(
+  const salt = webcrypto.getRandomValues(new Uint8Array(16));
+  const key = await webcrypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(password),
     "PBKDF2",
@@ -50,21 +50,21 @@ async function hashPassword(password) {
   );
   const bits = new Uint8Array(
     await webcrypto.subtle.deriveBits(
-      { name: "PBKDF2", salt: sal, iterations: ITER, hash: "SHA-256" },
-      clave,
+      { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
+      key,
       256,
     ),
   );
-  return `pbkdf2$${ITER}$${aBase64(sal)}$${aBase64(bits)}`;
+  return `pbkdf2$${PBKDF2_ITERATIONS}$${toBase64(salt)}$${toBase64(bits)}`;
 }
 
 const email = (process.argv[2] ?? "").trim().toLowerCase();
 if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-  console.error("Uso: npm run db:admin -- email@example.com");
+  console.error("Usage: npm run db:admin -- email@example.com");
   process.exit(1);
 }
 
-const password = await pregunta("Contraseña: ", true);
+const password = await ask("Contraseña: ", true);
 console.log();
 if (password.length < 8) {
   console.error("La contraseña debe tener al menos 8 caracteres.");
@@ -73,16 +73,16 @@ if (password.length < 8) {
 
 const hash = await hashPassword(password);
 const sql =
-  "-- Usuario inicial (generado, no editar a mano).\n" +
+  "-- Initial user (generated, do not edit by hand).\n" +
   `INSERT INTO "usuarios" ("email", "hash") VALUES ('${email.replaceAll("'", "''")}', '${hash}')\n` +
   'ON CONFLICT("email") DO UPDATE SET "hash" = excluded."hash";\n';
 
-const raiz = join(dirname(fileURLToPath(import.meta.url)), "..");
-const destino = join(raiz, "data", "derived", "admin.sql");
-mkdirSync(dirname(destino), { recursive: true });
-writeFileSync(destino, sql, "utf-8");
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const destination = join(root, "data", "derived", "admin.sql");
+mkdirSync(dirname(destination), { recursive: true });
+writeFileSync(destination, sql, "utf-8");
 
-console.log(`OK -> ${destino}`);
+console.log(`OK -> ${destination}`);
 console.log(
-  "Aplica con: npx wrangler d1 execute biblioteca --remote --file=./data/derived/admin.sql",
+  "Apply with: npx wrangler d1 execute biblioteca --remote --file=./data/derived/admin.sql",
 );
