@@ -1,0 +1,38 @@
+[project]
+name = "biblioteca"
+version = "0.2.0"
+description = "ETL de la biblioteca: Access -> SQLite/CSV -> Cloudflare D1"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "IsaacMercado", email = "mercadoluis095@gmail.com" }
+]
+dependencies = [
+    "access-parser>=0.0.6",
+]
+
+[project.scripts]
+biblioteca-etl = "biblioteca.cli:main"
+biblioteca-export = "biblioteca.export:main"
+biblioteca-gui = "biblioteca.gui_tk:main"
+biblioteca-web = "biblioteca.gen_web:main"
+
+[build-system]
+requires = ["uv_build>=0.12.18,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# La plantilla HTML lleva CSS/JS en líneas largas a propósito.
+"src/biblioteca/gen_web.py" = ["E501"]

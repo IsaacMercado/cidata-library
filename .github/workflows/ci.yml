@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Worker (TypeScript)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Typecheck + bundle (dry-run)
+        run: npm run check
+
+      - name: Tests
+        run: npm test
+
+  etl:
+    name: ETL (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.12.18"
+          enable-cache: true
+
+      - name: Sincronizar entorno
+        run: uv sync --project tools/etl --frozen
+
+      - name: Lint
+        run: uv run --project tools/etl ruff check tools/etl/src

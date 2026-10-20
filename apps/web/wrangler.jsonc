@@ -1,0 +1,40 @@
+/**
+ * Configuración del Worker.
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ *
+ * `compatibility_date` fija el comportamiento del runtime. Súbela solo
+ * después de probar `npm run dev` y `npm run check`.
+ */
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "biblioteca-web",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "upload_source_maps": true,
+  "observability": {
+    "enabled": true
+  },
+  // Opcional: dominio propio.
+  // "routes": [{ "pattern": "biblioteca.example.com", "custom_domain": true }],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    // El Worker decide antes que el asset para las páginas de escritura y la
+    // API. Incluimos las rutas limpias (/editar) y los .html antiguos.
+    "run_worker_first": [
+      "/api/*",
+      "/editar",
+      "/editar.html",
+      "/nuevo",
+      "/nuevo.html"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "biblioteca",
+      // Cópialo de `npx wrangler d1 create biblioteca`.
+      "database_id": "REEMPLAZAR-con-el-id-de-wrangler-d1-create"
+    }
+  ]
+}

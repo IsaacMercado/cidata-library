@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Biblioteca — Buscar</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="marca" href="/">📚 Biblioteca<small>Catálogo en línea</small></a>
+    <nav><span id="sesion"></span><a href="/" aria-current="page">Buscar</a><a href="/nuevo">Nuevo registro</a></nav>
+  </div>
+</header>
+<main class="wrap">
+  <section class="tarjeta">
+    <h1>Buscar en el catálogo</h1>
+    <p class="subtitulo">Búsqueda de texto completo, insensible a tildes.</p>
+    <div id="aviso" class="aviso" hidden></div>
+    <form id="buscador" class="buscador" role="search">
+      <input type="search" id="q" placeholder="Título, autor, tema, ficha… (p. ej. geofísica)" autocomplete="off">
+      <button type="submit">Buscar</button>
+    </form>
+    <details class="filtros">
+      <summary>Opciones de búsqueda</summary>
+      <div class="filtros-cuerpo">
+        <label class="campo-filtro">Modo
+          <select id="modo" title="Modo de búsqueda">
+            <option value="simple">Simple (palabras)</option>
+            <option value="avanzado">Avanzada (FTS5)</option>
+          </select>
+        </label>
+        <label class="campo-filtro">Orden
+          <select id="orden" title="Orden">
+            <option value="id">Relevancia / ID</option>
+            <option value="titulo">Por título</option>
+            <option value="autor">Por autor</option>
+          </select>
+        </label>
+      </div>
+      <div class="campos-fts" id="camposFts" title="Limitar la búsqueda a estos campos"></div>
+    </details>
+    <p class="ayuda">Modo avanzado: frases <code>"…"</code>, <code>AND</code> / <code>OR</code> / <code>NOT</code>, prefijos <code>term*</code> y filtros <code>{Titulo Autor} : …</code>.</p>
+  </section>
+  <section class="tarjeta">
+    <div class="info-resultados" id="info" aria-live="polite"></div>
+    <div class="tabla-scroll">
+      <table class="resultados">
+        <thead><tr><th style="width:64px">ID</th><th>Título</th><th>Autor</th><th>Tema o materia</th></tr></thead>
+        <tbody id="filas"></tbody>
+      </table>
+    </div>
+    <div class="pie">
+      <button id="ant" type="button" class="btn-secundario">◀ Anterior</button>
+      <span class="pos" id="pos"></span>
+      <button id="sig" type="button" class="btn-secundario">Siguiente ▶</button>
+    </div>
+  </section>
+</main>
+<script type="module">
+import { actualizarSesion, api, esc, mostrarAviso } from "/app.js";
+
+let meta = null, page = 1, pages = 1, cargando = false;
+const $ = (id) => document.getElementById(id);
+
+async function init() {
+  actualizarSesion();
+  meta = await api("/api/meta");
+  const cont = $("camposFts");
+  for (const col of meta.ftsColumnas) {
+    const lab = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.value = col; cb.checked = true;
+    lab.append(cb, " " + col);
+    cont.appendChild(lab);
+  }
+  $("buscador").addEventListener("submit", (e) => { e.preventDefault(); page = 1; buscar(); });
+  $("q").addEventListener("input", () => { page = 1; buscar(); });
+  $("modo").addEventListener("change", () => { page = 1; buscar(); });
+  $("orden").addEventListener("change", () => { page = 1; buscar(); });
+  cont.addEventListener("change", () => { page = 1; buscar(); });
+  $("ant").addEventListener("click", () => { if (page > 1) { page--; buscar(); } });
+  $("sig").addEventListener("click", () => { if (page < pages) { page++; buscar(); } });
+  buscar();
+}
+
+async function buscar() {
+  if (cargando) return;
+  cargando = true;
+  const params = new URLSearchParams({
+    q: $("q").value.trim(),
+    modo: $("modo").value,
+    orden: $("orden").value,
+    page: String(page),
+    limit: "25",
+  });
+  const sel = [...document.querySelectorAll("#camposFts input:checked")].map((c) => c.value);
+  if (sel.length !== meta.ftsColumnas.length) params.set("campos", sel.join(","));
+  try {
+    const r = await api("/api/libros?" + params);
+    pages = r.pages || 1;
+    $("info").innerHTML = `<strong>${esc(r.total)}</strong> resultado(s)`;
+    $("filas").innerHTML = r.items.length ? r.items.map((f) =>
+      `<tr><td class="id-celda">${esc(f.id)}</td><td><a href="/libro?id=${esc(f.id)}">${esc(f.titulo) || "—"}</a>` +
+      (f.fragmento ? `<br><small>${f.fragmento}</small>` : "") +
+      `</td><td>${esc(f.autor) || "—"}</td><td>${esc(f.temaOMateria) || "—"}</td></tr>`
+    ).join("") : `<tr><td colspan="4"><div class="vacio">Sin resultados para esta búsqueda.</div></td></tr>`;
+    $("pos").textContent = `Página ${r.page} de ${pages}`;
+    $("ant").disabled = r.page <= 1;
+    $("sig").disabled = r.page >= pages;
+  } catch (e) {
+    mostrarAviso("aviso", e.message, true);
+  } finally {
+    cargando = false;
+  }
+}
+
+init();
+</script>
+</body>
+</html>

@@ -8,14 +8,24 @@
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<div class="ventana">
-  <div class="encabezado"><span>Biblioteca — Nuevo registro (requiere login)</span><nav><a href="/">Buscar</a></nav></div>
-  <div class="detalle">
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="marca" href="/">📚 Biblioteca<small>Catálogo en línea</small></a>
+    <nav><a href="/">Buscar</a></nav>
+  </div>
+</header>
+<main class="wrap">
+  <section class="tarjeta">
+    <h1>Nuevo registro</h1>
+    <p class="subtitulo">Solo usuarios con sesión iniciada.</p>
     <div id="aviso" class="aviso" hidden></div>
     <div id="form"></div>
-    <div class="pie"><button id="crear" type="button">Crear</button><a class="btn" href="/">Cancelar</a></div>
-  </div>
-</div>
+    <div class="barra-acciones">
+      <button id="crear" type="button">Crear registro</button>
+      <a class="btn btn-secundario" href="/">Cancelar</a>
+    </div>
+  </section>
+</main>
 <script type="module">
 import { api, construirFormulario, mostrarAviso } from "/app.js";
 
@@ -23,10 +33,10 @@ const recoger = construirFormulario(document.getElementById("form"));
 document.getElementById("crear").addEventListener("click", async () => {
   try {
     const r = await api("/api/libros", { method: "POST", body: JSON.stringify(recoger()) });
-    location.href = "/libro.html?id=" + encodeURIComponent(r.id);
+    location.href = "/libro?id=" + encodeURIComponent(r.id);
   } catch (e) {
     mostrarAviso("aviso", e.status === 401
-      ? "Para crear debes iniciar sesión (Cloudflare Access)."
+      ? "Para crear debes iniciar sesión."
       : e.message, true);
   }
 });

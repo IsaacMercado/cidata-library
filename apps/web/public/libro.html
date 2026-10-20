@@ -8,17 +8,25 @@
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<div class="ventana">
-  <div class="encabezado"><span>Biblioteca — Ficha</span><nav><span id="sesion"></span> <a href="/">Buscar</a><a href="/nuevo.html">Nuevo registro</a></nav></div>
-  <div class="detalle">
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="marca" href="/">📚 Biblioteca<small>Catálogo en línea</small></a>
+    <nav><span id="sesion"></span><a href="/">Buscar</a><a href="/nuevo">Nuevo registro</a></nav>
+  </div>
+</header>
+<main class="wrap">
+  <section class="tarjeta">
+    <h1 id="titulo-ficha">Ficha del registro</h1>
+    <p class="subtitulo" id="subtitulo-ficha"></p>
     <div id="aviso" class="aviso" hidden></div>
     <dl class="dl" id="ficha"></dl>
-    <div class="pie">
-      <a class="btn" id="editar" href="#">Editar (requiere login)</a>
-      <button class="peligro" id="eliminar" type="button">Eliminar (requiere login)</button>
+    <div class="acciones">
+      <a class="btn" id="editar" href="#">Editar</a>
+      <button class="peligro" id="eliminar" type="button">Eliminar</button>
+      <a class="btn btn-secundario" href="/">Volver a buscar</a>
     </div>
-  </div>
-</div>
+  </section>
+</main>
 <script type="module">
 import { actualizarSesion, CAMPOS, api, esc, mostrarAviso } from "/app.js";
 
@@ -27,11 +35,13 @@ const $ = (x) => document.getElementById(x);
 
 async function init() {
   actualizarSesion();
-  $("editar").href = "/editar.html?id=" + encodeURIComponent(id);
+  $("editar").href = "/editar?id=" + encodeURIComponent(id);
   try {
     const f = await api("/api/libros/" + encodeURIComponent(id));
+    $("titulo-ficha").textContent = f.titulo || `Registro ${f.id}`;
+    $("subtitulo-ficha").textContent = [f.autor, f.temaOMateria].filter(Boolean).join(" · ") || `ID ${f.id}`;
     $("ficha").innerHTML = CAMPOS.map((c) =>
-      `<dt>${esc(c.etiqueta)}</dt><dd>${esc(f[c.clave])}</dd>`).join("");
+      `<dt>${esc(c.etiqueta)}</dt><dd>${esc(f[c.clave]) || "—"}</dd>`).join("");
   } catch (e) {
     mostrarAviso("aviso", e.message, true);
   }
@@ -42,7 +52,7 @@ async function init() {
       location.href = "/";
     } catch (e) {
       mostrarAviso("aviso", e.status === 401
-        ? "Para eliminar debes iniciar sesión (Cloudflare Access)."
+        ? "Para eliminar debes iniciar sesión."
         : e.message, true);
     }
   });

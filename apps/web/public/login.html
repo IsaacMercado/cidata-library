@@ -8,17 +8,24 @@
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-<div class="ventana">
-  <div class="encabezado"><span>Biblioteca — Entrar</span><nav><a href="/">Buscar</a></nav></div>
-  <div class="detalle">
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="marca" href="/">📚 Biblioteca<small>Catálogo en línea</small></a>
+    <nav><a href="/">Buscar</a></nav>
+  </div>
+</header>
+<main class="wrap">
+  <section class="tarjeta login-card">
+    <h1>Iniciar sesión</h1>
+    <p class="subtitulo">Necesaria para crear, editar o eliminar registros. La consulta es pública.</p>
     <div id="aviso" class="aviso" hidden></div>
     <form id="login">
-      <div class="fila"><span>Email</span><input type="email" name="email" required autocomplete="username"></div>
-      <div class="fila"><span>Contraseña</span><input type="password" name="password" required autocomplete="current-password"></div>
-      <div class="pie"><button type="submit">Entrar</button></div>
+      <div class="fila"><label for="email">Email</label><input id="email" type="email" name="email" required autocomplete="username" placeholder="tu@email.com"></div>
+      <div class="fila"><label for="password">Contraseña</label><input id="password" type="password" name="password" required autocomplete="current-password"></div>
+      <div class="barra-acciones"><button type="submit">Entrar</button></div>
     </form>
-  </div>
-</div>
+  </section>
+</main>
 <script type="module">
 import { mostrarAviso } from "/app.js";
 
@@ -32,7 +39,8 @@ document.getElementById("login").addEventListener("submit", async (e) => {
     body: JSON.stringify(datos),
   });
   if (r.ok) {
-    location.href = next.startsWith("/") ? next : "/";
+    const destino = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+    location.href = destino;
   } else {
     const cuerpo = await r.json().catch(() => ({}));
     mostrarAviso("aviso", cuerpo.mensaje || "No se pudo entrar.", true);

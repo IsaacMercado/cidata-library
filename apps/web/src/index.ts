@@ -181,8 +181,9 @@ app.delete(
 );
 
 // Paginas de escritura: solo con sesion; si no, al login. Se sirven desde el
-// binding ASSETS (requiere run_worker_first en wrangler.jsonc).
-for (const pagina of ["/editar.html", "/nuevo.html"]) {
+// binding ASSETS (requiere run_worker_first en wrangler.jsonc). Aceptamos la
+// ruta limpia (/editar) y el .html antiguo.
+for (const pagina of ["/editar", "/editar.html", "/nuevo", "/nuevo.html"]) {
   app.get(pagina, requireAuthPagina, async (c) => {
     return c.env.ASSETS.fetch(c.req.raw);
   });

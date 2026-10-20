@@ -1,0 +1,40 @@
+# Node / npm
+node_modules/
+*.log
+npm-debug.log*
+coverage/
+dist/
+
+# Wrangler
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Datos y artefactos del ETL (Access, CSV, SQLite, seeds, usuarios)
+# La base Access y los datos personales NUNCA se versionan.
+data/*
+!data/.gitkeep
+
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+build/
+wheels/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+.uv-cache/
+
+# Exploratorio / local
+.playwright-mcp/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Editores y sistema
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

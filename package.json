@@ -1,0 +1,33 @@
+{
+  "name": "biblioteca",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Catálogo de biblioteca: Worker + D1 en Cloudflare, con ETL desde Access",
+  "type": "module",
+  "workspaces": [
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=20",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "dev": "npm run dev -w @biblioteca/web",
+    "deploy": "npm run deploy -w @biblioteca/web",
+    "deploy:dry": "npm run deploy:dry -w @biblioteca/web",
+    "check": "npm run check -w @biblioteca/web",
+    "test": "npm run test -w @biblioteca/web",
+    "cf-typegen": "npm run cf-typegen -w @biblioteca/web",
+    "db:generate": "npm run db:generate -w @biblioteca/web",
+    "db:fts": "npm run db:fts -w @biblioteca/web",
+    "db:migrate:local": "npm run db:migrate:local -w @biblioteca/web",
+    "db:migrate:remote": "npm run db:migrate:remote -w @biblioteca/web",
+    "db:seed:local": "npm run db:seed:local -w @biblioteca/web",
+    "db:seed:remote": "npm run db:seed:remote -w @biblioteca/web",
+    "db:admin": "node tools/crear_usuario.mjs",
+    "data:extract": "uv run --project tools/etl biblioteca-etl export",
+    "data:sql": "uv run --project tools/etl biblioteca-etl sql",
+    "data:upload": "uv run --project tools/etl biblioteca-etl upload",
+    "data:all": "npm run data:extract && npm run data:sql"
+  }
+}

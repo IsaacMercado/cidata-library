@@ -17,14 +17,14 @@ function citar(texto: string): string {
  */
 export function matchSimple(q: string, campos?: string[]): string | null {
   const filtro = filtroColumnas(campos);
-  const consttokens: string[] = [];
+  const tokens: string[] = [];
   const palabras = q
     .slice(0, MAX_SIMPLE)
     .toLowerCase()
     .match(/[\p{L}\p{N}]+/gu);
   if (!palabras || palabras.length === 0) return null;
-  for (const p of palabras) consttokens.push(citar(p));
-  return `${filtro}${consttokens.join(" ")}`.trim() || null;
+  for (const p of palabras) tokens.push(citar(p));
+  return `${filtro}${tokens.join(" ")}`.trim() || null;
 }
 
 /**

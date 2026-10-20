@@ -168,7 +168,7 @@ export async function requireAuth(
     return c.json(
       {
         error: "auth_required",
-        mensaje: "Inicia sesión para escribir. Ve a /login.html.",
+        mensaje: "Inicia sesión para escribir. Ve a /login.",
       },
       401,
     );
@@ -186,7 +186,7 @@ export async function requireAuthPagina(
   const sesion = await sesionActual(db, c.req.raw);
   if (!sesion) {
     const url = new URL(c.req.url);
-    const destino = `/login.html?next=${encodeURIComponent(url.pathname + url.search)}`;
+    const destino = `/login?next=${encodeURIComponent(url.pathname + url.search)}`;
     return c.redirect(destino, 302);
   }
   await next();

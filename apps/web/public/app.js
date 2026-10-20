@@ -48,15 +48,24 @@ export function construirFormulario(contenedor, registro = {}) {
   for (const campo of CAMPOS) {
     const fila = document.createElement("div");
     fila.className = "fila";
-    const lab = document.createElement("span");
+    const lab = document.createElement("label");
+    const idCampo = `campo-${campo.clave}`;
     lab.textContent = campo.etiqueta;
+    lab.htmlFor = idCampo;
     fila.appendChild(lab);
     const el = document.createElement(campo.multilinea ? "textarea" : "input");
     if (campo.multilinea) el.rows = 3;
     else el.type = "text";
+    el.id = idCampo;
     el.name = campo.clave;
     el.value = registro[campo.clave] ?? "";
-    if (campo.soloLectura) el.readOnly = true;
+    if (campo.soloLectura) {
+      el.readOnly = true;
+      el.tabIndex = -1;
+    } else {
+      el.placeholder = campo.etiqueta.replace(/:$/, "");
+      el.autocomplete = "off";
+    }
     fila.appendChild(el);
     contenedor.appendChild(fila);
     controles[campo.clave] = el;
@@ -78,18 +87,19 @@ export async function actualizarSesion() {
   try {
     const r = await fetch("/api/auth/yo");
     if (!r.ok) {
-      el.innerHTML = `<a href="/login.html?next=${encodeURIComponent(location.pathname + location.search)}">Entrar</a>`;
+      el.innerHTML = `<a href="/login?next=${encodeURIComponent(location.pathname + location.search)}">Entrar</a>`;
       return;
     }
     const { email } = await r.json();
-    el.innerHTML = `${esc(email)} <a href="#" id="salir">Salir</a>`;
+    el.innerHTML =
+      `<span class="usuario">${esc(email)}</span> <a href="#" id="salir">Salir</a>`;
     document.getElementById("salir").addEventListener("click", async (e) => {
       e.preventDefault();
       await fetch("/api/auth/logout", { method: "POST" });
       location.reload();
     });
   } catch {
-    el.innerHTML = '<a href="/login.html">Entrar</a>';
+    el.innerHTML = '<a href="/login">Entrar</a>';
   }
 }
 
