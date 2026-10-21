@@ -1,7 +1,7 @@
-# Biblioteca
+# Biblioteca CIDATA
 
-Catálogo de biblioteca migrado desde Microsoft Access y desplegado en
-**Cloudflare Workers + D1**.
+Catálogo en línea de la biblioteca **CIDATA**, migrado desde Microsoft Access y
+desplegado en **Cloudflare Workers + D1**.
 
 - **Consulta pública**: listado, ficha y búsqueda de texto completo (FTS5,
   insensible a tildes).

@@ -3,14 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Biblioteca — Editar</title>
-<link rel="icon" href="data:,">
+<title>Biblioteca CIDATA — Editar registro</title>
+<meta name="description" content="Edición de un registro del catálogo de la biblioteca CIDATA.">
+<meta name="theme-color" content="#1e4e79">
+<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 <header class="topbar">
   <div class="wrap topbar-inner">
-    <a class="marca" href="/">📚 Biblioteca<small>Catálogo en línea</small></a>
+    <a class="marca" href="/" aria-label="Biblioteca CIDATA — Inicio">
+      <img class="marca-icono" src="/logo-mark.svg" alt="" width="64" height="38">
+      <span class="marca-texto">Biblioteca<small>CIDATA · Catálogo en línea</small></span>
+    </a>
     <nav><a href="/">Buscar</a></nav>
   </div>
 </header>
@@ -26,6 +31,10 @@
     </div>
   </section>
 </main>
+<footer class="pie-pagina">
+  <img src="/logo-mark.svg" alt="" width="29" height="17">
+  <span><strong>CIDATA</strong> · Biblioteca — Catálogo en línea</span>
+</footer>
 <script type="module">
 import { api, buildForm, showNotice } from "/app.js";
 

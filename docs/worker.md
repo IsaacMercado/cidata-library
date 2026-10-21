@@ -1,4 +1,4 @@
-# Worker de la biblioteca
+# Worker de la biblioteca CIDATA
 
 Worker de Cloudflare con Hono + Drizzle + D1. El proyecto Worker vive en la
 raíz del repositorio. La documentación general (instalación, ETL, despliegue

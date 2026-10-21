@@ -3,14 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Biblioteca — Buscar</title>
-<link rel="icon" href="data:,">
+<title>Biblioteca CIDATA — Buscar</title>
+<meta name="description" content="Catálogo en línea de la biblioteca CIDATA. Búsqueda de texto completo por título, autor, tema y ficha.">
+<meta name="theme-color" content="#1e4e79">
+<link rel="icon" href="/logo-mark.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
 <header class="topbar">
   <div class="wrap topbar-inner">
-    <a class="marca" href="/">📚 Biblioteca<small>Catálogo en línea</small></a>
+    <a class="marca" href="/" aria-label="Biblioteca CIDATA — Inicio">
+      <img class="marca-icono" src="/logo-mark.svg" alt="" width="64" height="38">
+      <span class="marca-texto">Biblioteca<small>CIDATA · Catálogo en línea</small></span>
+    </a>
     <nav><span id="session"></span><a href="/" aria-current="page">Buscar</a><a href="/nuevo">Nuevo registro</a></nav>
   </div>
 </header>
@@ -59,18 +64,27 @@
     </div>
   </section>
 </main>
+<footer class="pie-pagina">
+  <img src="/logo-mark.svg" alt="" width="29" height="17">
+  <span><strong>CIDATA</strong> · Biblioteca — Catálogo en línea</span>
+</footer>
 <script type="module">
 import { updateSession, api, escapeHtml, highlightFragment, showNotice } from "/app.js";
 
 let meta = null;
 let page = 1;
 let pages = 1;
-let loading = false;
+let controller = null;
+let debounceTimer = null;
+let requestId = 0;
 const $ = (id) => document.getElementById(id);
 
-async function init() {
-  updateSession();
-  meta = await api("/api/meta");
+async function loadMeta() {
+  try {
+    meta = await api("/api/meta");
+  } catch {
+    return;
+  }
   const container = $("fts-fields");
   for (const column of meta.ftsColumns) {
     const label = document.createElement("label");
@@ -81,24 +95,37 @@ async function init() {
     label.append(checkbox, " " + column);
     container.appendChild(label);
   }
+  container.addEventListener("change", () => {
+    page = 1;
+    search();
+  });
+}
+
+function init() {
+  updateSession();
+  // Start the first search immediately: the filter metadata loads in parallel,
+  // so results do not wait for an extra round trip.
+  search();
+  loadMeta();
   $("search-form").addEventListener("submit", (event) => {
     event.preventDefault();
+    clearTimeout(debounceTimer);
     page = 1;
     search();
   });
   $("q").addEventListener("input", () => {
-    page = 1;
-    search();
+    // Debounce so typing does not fire one D1 query per keystroke.
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      page = 1;
+      search();
+    }, 250);
   });
   $("mode").addEventListener("change", () => {
     page = 1;
     search();
   });
   $("order").addEventListener("change", () => {
-    page = 1;
-    search();
-  });
-  container.addEventListener("change", () => {
     page = 1;
     search();
   });
@@ -114,12 +141,13 @@ async function init() {
       search();
     }
   });
-  search();
 }
 
 async function search() {
-  if (loading) return;
-  loading = true;
+  const id = ++requestId;
+  // Cancel the previous request instead of dropping the new keystroke.
+  controller?.abort();
+  controller = new AbortController();
   const params = new URLSearchParams({
     q: $("q").value.trim(),
     mode: $("mode").value,
@@ -127,10 +155,14 @@ async function search() {
     page: String(page),
     limit: "25",
   });
-  const selected = [...document.querySelectorAll("#fts-fields input:checked")].map((checkbox) => checkbox.value);
-  if (selected.length !== meta.ftsColumns.length) params.set("fields", selected.join(","));
+  if (meta) {
+    const selected = [...document.querySelectorAll("#fts-fields input:checked")].map((checkbox) => checkbox.value);
+    if (selected.length !== meta.ftsColumns.length) params.set("fields", selected.join(","));
+  }
+  $("results-info").dataset.loading = "true";
   try {
-    const result = await api("/api/libros?" + params);
+    const result = await api("/api/libros?" + params, { signal: controller.signal });
+    if (id !== requestId) return;
     pages = result.pages || 1;
     $("results-info").innerHTML = `<strong>${escapeHtml(result.total)}</strong> resultado(s)`;
     $("rows").innerHTML = result.items.length ? result.items.map((book) =>
@@ -142,9 +174,10 @@ async function search() {
     $("prev-page").disabled = result.page <= 1;
     $("next-page").disabled = result.page >= pages;
   } catch (error) {
+    if (error.name === "AbortError" || id !== requestId) return;
     showNotice("notice", error.message, true);
   } finally {
-    loading = false;
+    if (id === requestId) delete $("results-info").dataset.loading;
   }
 }
 

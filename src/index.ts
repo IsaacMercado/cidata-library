@@ -63,8 +63,12 @@ app.use("*", async (c, next) => {
 app.route("/api/auth", authRoutes);
 
 app.get("/api/meta", (c) => {
+  // The descriptors are static for a given deployment; let the browser reuse
+  // them instead of paying a Worker round trip on every page load.
+  c.header("Cache-Control", "public, max-age=3600");
   return c.json({
-    title: "Biblioteca",
+    title: "Biblioteca CIDATA",
+    organization: "CIDATA",
     fields: FIELDS,
     ftsColumns: FTS_COLUMNS,
     limits: { likeBytes: 50, maxPageSize: 100 },
@@ -115,22 +119,27 @@ app.get("/api/libros", validate("query", listQuerySchema), async (c) => {
     // mark the highlighted span; the client escapes the snippet and then turns
     // them into <mark> tags, so catalog text can never inject HTML.
     const fragment = sql<string>`snippet("biblioteca_fts", 6, '\u0001', '\u0002', '…', 12)`;
-    const rows = await db
-      .select({ ...getTableColumns(books), rank, fragment })
-      .from(books)
-      // FTS5 requires the actual table name (not an alias) next to MATCH.
-      .innerJoin(
-        sql`"biblioteca_fts"`,
-        sql`"Biblioteca"."ID" = "biblioteca_fts"."rowid"`,
-      )
-      .where(sql`"biblioteca_fts" MATCH ${match}`)
-      .orderBy(order === "id" ? rank : books[order])
-      .limit(limit)
-      .offset(offset)
-      .all();
-    const totalRows = await db.all<{ n: number }>(
-      sql`SELECT COUNT(*) AS "n" FROM "biblioteca_fts" WHERE "biblioteca_fts" MATCH ${match}`,
-    );
+    // FTS5 forbids bm25()/snippet() in queries that also use window functions,
+    // so the count stays a separate query. Running both in parallel keeps the
+    // extra D1 round trip from adding to the response time.
+    const [rows, totalRows] = await Promise.all([
+      db
+        .select({ ...getTableColumns(books), rank, fragment })
+        .from(books)
+        // FTS5 requires the actual table name (not an alias) next to MATCH.
+        .innerJoin(
+          sql`"biblioteca_fts"`,
+          sql`"Biblioteca"."ID" = "biblioteca_fts"."rowid"`,
+        )
+        .where(sql`"biblioteca_fts" MATCH ${match}`)
+        .orderBy(order === "id" ? rank : books[order])
+        .limit(limit)
+        .offset(offset)
+        .all(),
+      db.all<{ n: number }>(
+        sql`SELECT COUNT(*) AS "n" FROM "biblioteca_fts" WHERE "biblioteca_fts" MATCH ${match}`,
+      ),
+    ]);
     const total = totalRows[0]?.n ?? 0;
     return c.json({
       items: rows,
