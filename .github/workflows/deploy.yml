@@ -40,8 +40,8 @@ jobs:
 
       - name: Verify D1 configuration
         run: |
-          if grep -q 'REEMPLAZAR-con-el-id' apps/web/wrangler.jsonc; then
-            echo "::error::Missing real database_id in apps/web/wrangler.jsonc"
+          if grep -q 'REEMPLAZAR-con-el-id' wrangler.jsonc; then
+            echo "::error::Missing real database_id in wrangler.jsonc"
             exit 1
           fi
 
@@ -58,6 +58,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/web
+          workingDirectory: .
           wranglerVersion: "4.151.3"
           command: deploy

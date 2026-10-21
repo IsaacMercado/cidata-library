@@ -4,31 +4,41 @@
   "private": true,
   "description": "Catálogo de biblioteca: Worker + D1 en Cloudflare, con ETL desde Access",
   "type": "module",
-  "workspaces": [
-    "apps/web"
-  ],
   "engines": {
     "node": ">=20",
     "npm": ">=10"
   },
   "scripts": {
-    "dev": "npm run dev -w @biblioteca/web",
-    "deploy": "npm run deploy -w @biblioteca/web",
-    "deploy:dry": "npm run deploy:dry -w @biblioteca/web",
+    "dev": "wrangler dev",
     "build": "npm run check",
-    "check": "npm run check -w @biblioteca/web",
-    "test": "npm run test -w @biblioteca/web",
-    "cf-typegen": "npm run cf-typegen -w @biblioteca/web",
-    "db:generate": "npm run db:generate -w @biblioteca/web",
-    "db:fts": "npm run db:fts -w @biblioteca/web",
-    "db:migrate:local": "npm run db:migrate:local -w @biblioteca/web",
-    "db:migrate:remote": "npm run db:migrate:remote -w @biblioteca/web",
-    "db:seed:local": "npm run db:seed:local -w @biblioteca/web",
-    "db:seed:remote": "npm run db:seed:remote -w @biblioteca/web",
+    "check": "tsc --noEmit && wrangler deploy --dry-run --outdir dist",
+    "test": "vitest run",
+    "deploy": "wrangler deploy",
+    "deploy:dry": "wrangler deploy --dry-run --outdir dist",
+    "cf-typegen": "wrangler types",
+    "db:generate": "drizzle-kit generate",
+    "db:fts": "drizzle-kit generate --custom --name=fts",
+    "db:migrate:local": "wrangler d1 migrations apply biblioteca --local",
+    "db:migrate:remote": "wrangler d1 migrations apply biblioteca --remote",
+    "db:seed:local": "wrangler d1 execute biblioteca --local --file=data/derived/seed.sql",
+    "db:seed:remote": "wrangler d1 execute biblioteca --remote --file=data/derived/seed.sql",
     "db:admin": "node tools/create_user.mjs",
     "data:extract": "uv run --project tools/etl biblioteca-etl export",
     "data:sql": "uv run --project tools/etl biblioteca-etl sql",
     "data:upload": "uv run --project tools/etl biblioteca-etl upload",
     "data:all": "npm run data:extract && npm run data:sql"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.9.1",
+    "drizzle-orm": "^0.45.0",
+    "hono": "^4.7.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.4",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.136.1"
   }
 }

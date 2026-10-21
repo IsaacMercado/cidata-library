@@ -16,4 +16,4 @@ DERIVED_DIR = DATA_DIR / "derived"
 ACCESS_DB = DATA_DIR / "biblioteca.accdb"
 SQLITE_DB = DERIVED_DIR / "biblioteca.sqlite"
 SEED_SQL = DERIVED_DIR / "seed.sql"
-WEB_APP = ROOT / "apps" / "web"
+WORKER_DIR = ROOT

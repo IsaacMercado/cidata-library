@@ -1,8 +1,8 @@
 # Worker de la biblioteca
 
-Worker de Cloudflare con Hono + Drizzle + D1. La documentación general
-(instalación, ETL, despliegue automático) está en el
-[README raíz](../../README.md).
+Worker de Cloudflare con Hono + Drizzle + D1. El proyecto Worker vive en la
+raíz del repositorio. La documentación general (instalación, ETL, despliegue
+automático) está en el [README raíz](../README.md).
 
 ## Comandos
 

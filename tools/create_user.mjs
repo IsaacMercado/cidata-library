@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Create data/derived/admin.sql with an INSERT/UPDATE for a user.
-// Uses the same parameters as apps/web/src/auth.ts
+// Uses the same parameters as src/auth.ts
 // (PBKDF2-SHA256, 10,000 iterations).
 //
 // Usage (from the repository root):
@@ -17,7 +17,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// See the CPU budget note in apps/web/src/auth.ts
+// See the CPU budget note in src/auth.ts
 // (free plan: 10 ms per request).
 const PBKDF2_ITERATIONS = 10_000;
 

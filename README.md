@@ -15,14 +15,10 @@ Catálogo de biblioteca migrado desde Microsoft Access y desplegado en
 
 ```text
 .
-├── apps/
-│   └── web/                    # Worker de Cloudflare
-│       ├── src/                # Hono + Drizzle + auth + FTS
-│       ├── public/             # HTML/CSS/JS estáticos
-│       ├── migrations/         # Migraciones D1 (Wrangler + Drizzle)
-│       ├── test/               # Tests unitarios (Vitest)
-│       ├── wrangler.jsonc      # Configuración del Worker y D1
-│       └── package.json
+├── src/                        # Hono + Drizzle + auth + FTS
+├── public/                     # HTML/CSS/JS estáticos
+├── migrations/                 # Migraciones D1 (Wrangler + Drizzle)
+├── test/                       # Tests unitarios (Vitest)
 ├── tools/
 │   ├── etl/                    # Proyecto Python/uv: Access -> SQLite -> D1
 │   │   └── src/biblioteca/
@@ -31,7 +27,10 @@ Catálogo de biblioteca migrado desde Microsoft Access y desplegado en
 │   ├── biblioteca.accdb
 │   └── derived/                # CSV, SQLite, seed.sql, admin.sql
 ├── .github/workflows/          # CI y despliegue automático
-└── package.json                # Workspace npm y scripts raíz
+├── wrangler.jsonc              # Configuración del Worker y D1
+├── drizzle.config.ts
+├── tsconfig.json
+└── package.json                # Dependencias y scripts del Worker + ETL
 ```
 
 `data/` **nunca se versiona**: contiene la base Access, datos personales y
@@ -55,13 +54,12 @@ uv sync --project tools/etl
 ### 2. Crear la base D1
 
 ```sh
-cd apps/web
 npx wrangler login
 npx wrangler d1 create biblioteca
 ```
 
-Copia el `database_id` que imprime Wrangler en
-`apps/web/wrangler.jsonc` y ejecuta de nuevo los tipos:
+Copia el `database_id` que imprime Wrangler en `wrangler.jsonc` y ejecuta de
+nuevo los tipos:
 
 ```sh
 npm run cf-typegen
@@ -93,8 +91,7 @@ uv run --project tools/etl biblioteca-etl export /ruta/a/otra.accdb data/derived
 
 ```sh
 npm run db:admin -- tu@email.com
-cd apps/web
-npx wrangler d1 execute biblioteca --local --file=../../data/derived/admin.sql
+npx wrangler d1 execute biblioteca --local --file=./data/derived/admin.sql
 ```
 
 La contraseña se pide por consola y nunca se guarda en claro.
@@ -129,7 +126,7 @@ Para subir por API HTTP (servidores/CI) en lugar de Wrangler:
 ```sh
 export CLOUDFLARE_API_TOKEN=...
 export CLOUDFLARE_ACCOUNT_ID=...
-export D1_DATABASE_ID=...   # database_id de apps/web/wrangler.jsonc
+export D1_DATABASE_ID=...   # database_id de wrangler.jsonc
 npm run data:upload -- --remote --method api
 ```
 
@@ -137,25 +134,22 @@ Más detalles en [`tools/etl/README.md`](tools/etl/README.md).
 
 ## Despliegue en Cloudflare
 
-> **Importante:** este proyecto es un **Worker** con assets estáticos y D1, no
-> un sitio de Cloudflare Pages. Si conectaste el repositorio desde
-> **Workers & Pages → Pages**, el build fallará (o desplegará solo los assets
-> sin la API). Elimina ese proyecto de Pages. La integración nativa de
-> Cloudflare para Git es **Workers Builds**, no Pages.
->
-> El error `EBADPLATFORM` de `@esbuild/aix-ppc64` era un problema del
-> `package-lock.json` (paquetes opcionales de esbuild mal marcados). Ya está
-> corregido: el lockfile se regeneró con `vite@6.4.4` y `npm ci` funciona con
-> npm 10.9.2. Aun así, Pages no puede ejecutar este Worker con D1; el problema
-> de fondo es el producto elegido.
->
-> `apps/web/wrangler.jsonc` ya contiene el `database_id` de la base D1. Si
-> creas otra base, actualiza ese valor.
+Este proyecto es un **Worker** con assets estáticos y D1, no un sitio de
+Cloudflare Pages. El Worker vive en la **raíz del repositorio**, que es la
+estructura que Cloudflare detecta por defecto: `wrangler.jsonc`, `src/`,
+`public/` y `package.json` están en la raíz. Por eso `npx wrangler deploy`
+funciona directamente, sin configurar una subcarpeta.
 
-### Despliegue directo desde tu máquina (lo más simple)
+La integración Git de Cloudflare no es un producto aparte: está en el Worker,
+en **Settings → Builds**. No busques un menú llamado “Workers Builds”.
 
-No necesitas GitHub Actions ni Pages. `wrangler` empaqueta y sube el Worker
-directamente:
+`wrangler.jsonc` ya contiene el `database_id` de la base D1 y el nombre
+`cidata-library`, que coincide con el Worker conectado a Git. Si creas otra
+base u otro Worker, actualiza esos valores.
+
+### Despliegue directo desde tu máquina
+
+No necesitas GitHub Actions ni Pages:
 
 ```sh
 npx wrangler login
@@ -164,30 +158,36 @@ npm run data:upload -- --remote
 npm run deploy
 ```
 
-`npm run deploy` ejecuta `wrangler deploy` dentro de `apps/web` y usa el
-`database_id` de `apps/web/wrangler.jsonc`.
+`npm run deploy` ejecuta `wrangler deploy` en la raíz y usa el `database_id`
+de `wrangler.jsonc`.
 
 Aplica el usuario administrador remoto:
 
 ```sh
 npm run db:admin -- tu@email.com
-cd apps/web
-npx wrangler d1 execute biblioteca --remote --file=../../data/derived/admin.sql
+npx wrangler d1 execute biblioteca --remote --file=./data/derived/admin.sql
 ```
 
-### Despliegue automático desde Git con Cloudflare Workers Builds
+### Despliegue automático desde Git
 
-Si quieres que Cloudflare despliegue al hacer push, usa **Workers Builds**.
-Es la integración nativa de Cloudflare (no Pages):
+En el Worker `cidata-library` → **Settings → Builds**:
 
-1. **Workers & Pages → Create → Workers → Connect to Git**.
-2. Selecciona el repositorio.
-3. Build command: `npm ci`
-4. Deploy command: `npm run db:migrate:remote && npm run deploy`
-5. No uses un proyecto de Pages.
+- **Root directory:** `/`
+- **Build command:** `npm run build` (opcional; también puede quedar vacío)
+- **Deploy command:** `npx wrangler deploy` (el valor por defecto) o
+  `npm run deploy`
 
-También puedes dejar solo `npm run deploy` como deploy command y ejecutar las
-migraciones manualmente la primera vez.
+Las migraciones **no** se ejecutan en el build. Aplícalas manualmente antes de
+desplegar un cambio de esquema:
+
+```sh
+npm run db:migrate:remote
+```
+
+Si quieres que el build también migre, el token de build necesita permiso de
+D1 y el deploy command sería
+`npm run db:migrate:remote && npm run deploy`. Para este proyecto las
+migraciones se aplican a mano, así que el deploy command simple es suficiente.
 
 ### GitHub Actions (opcional)
 
@@ -195,7 +195,7 @@ El workflow `.github/workflows/deploy.yml` existe como alternativa de CI/CD,
 pero **no es necesario** y no es la ruta recomendada. Está configurado solo
 para ejecución manual (`workflow_dispatch`), así que no se dispara en cada
 push. Si no lo quieres, se puede eliminar sin afectar al despliegue directo ni
-a Workers Builds.
+a la integración Git del Worker.
 
 Si lo usas, configura estos secrets en GitHub:
 
@@ -217,6 +217,7 @@ push y pull request. No despliega desde PRs.
 | Script | Qué hace |
 | --- | --- |
 | `npm run dev` | Worker en local con D1 local. |
+| `npm run build` | Igual que `npm run check`; es el build command de Cloudflare. |
 | `npm run check` | Typecheck + `wrangler deploy --dry-run`. |
 | `npm test` | Tests unitarios del Worker. |
 | `npm run deploy` | Despliega el Worker. |
@@ -230,19 +231,19 @@ push y pull request. No despliega desde PRs.
 
 ## Migraciones y esquema
 
-- El esquema Drizzle vive en `apps/web/src/db/schema.ts`.
-- `npm run db:generate` genera una migración nueva en `apps/web/migrations/`.
+- El esquema Drizzle vive en `src/db/schema.ts`.
+- `npm run db:generate` genera una migración nueva en `migrations/`.
 - `npm run db:fts` crea una migración custom (para SQL de FTS5/triggers).
 - Revisa siempre el SQL generado y commitéalo.
 - `wrangler d1 migrations apply` registra las migraciones aplicadas en la
   tabla `d1_migrations`. No edites migraciones ya aplicadas: crea una nueva.
-- `apps/web/migrations/meta/` es el historial interno de Drizzle; Wrangler lo
+- `migrations/meta/` es el historial interno de Drizzle; Wrangler lo
   ignora.
 
 Si ya tenías una D1 creada antes de adoptar `wrangler d1 migrations apply`,
 marca las migraciones existentes como aplicadas antes de seguir (o recrea la
 base). Para un entorno local puedes borrar
-`apps/web/.wrangler/state/v3/d1` y volver a migrar.
+`.wrangler/state/v3/d1` y volver a migrar.
 
 ## Búsqueda
 
@@ -259,7 +260,7 @@ base). Para un entorno local puedes borrar
 Este proyecto **no usa cookies firmadas ni JWT**. Usa sesiones opacas del lado
 del servidor, así que no necesita una clave secreta para firmar la cookie:
 
-1. En el login (`apps/web/src/auth.ts`) se generan 32 bytes aleatorios con
+1. En el login (`src/auth.ts`) se generan 32 bytes aleatorios con
    `crypto.getRandomValues` (256 bits).
 2. El token en claro va en la cookie `httpOnly`; en D1 se guarda únicamente su
    SHA-256 (`sesiones.token`).
@@ -282,7 +283,7 @@ y ningún atributo `Domain`; además se usa `HttpOnly` y `SameSite=Lax`.
 ### CSRF y escritura
 
 - Las rutas de escritura (`POST`, `PUT`, `DELETE`) exigen sesión válida.
-- Un middleware en `apps/web/src/index.ts` rechaza peticiones con `Origin` de
+- Un middleware en `src/index.ts` rechaza peticiones con `Origin` de
   otro sitio y con `Sec-Fetch-Site` distinto de `same-origin`/`none`.
 - La API espera `Content-Type: application/json`; un formulario cross-site
   simple no puede enviar JSON sin pasar por un preflight CORS que el Worker no
@@ -298,7 +299,7 @@ y ningún atributo `Domain`; además se usa `HttpOnly` y `SameSite=Lax`.
   filtrar qué cuentas existen por diferencias de tiempo.
 - 10.000 iteraciones es un compromiso con el límite de CPU del plan gratuito
   de Workers (10 ms por petición). Si pasas a un plan de pago, sube
-  `PBKDF2_ITERATIONS` en `apps/web/src/auth.ts` y en
+  `PBKDF2_ITERATIONS` en `src/auth.ts` y en
   `tools/create_user.mjs` a la vez, y regenera los hashes existentes.
 - El login no tiene rate limiting propio. Para producción se recomienda añadir
   Cloudflare Rate Limiting/WAF o Turnstile, o poner la aplicación detrás de

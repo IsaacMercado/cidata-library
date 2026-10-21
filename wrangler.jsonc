@@ -6,8 +6,8 @@
  * `npm run dev` and `npm run check`.
  */
 {
-  "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "biblioteca-web",
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cidata-library",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "upload_source_maps": true,

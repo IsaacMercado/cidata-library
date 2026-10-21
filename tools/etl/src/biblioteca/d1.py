@@ -31,7 +31,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from .paths import SQLITE_DB, WEB_APP
+from .paths import SQLITE_DB, WORKER_DIR
 from .seed import BATCH_SIZE, TABLE, iter_insert_statements, read_rows
 
 API_URL = (
@@ -62,7 +62,7 @@ def _run_wrangler(sql: str, *, database: str, local: bool) -> None:
     ]
     try:
         result = subprocess.run(
-            command, cwd=WEB_APP, capture_output=True, text=True, check=False
+            command, cwd=WORKER_DIR, capture_output=True, text=True, check=False
         )
         if result.returncode != 0:
             if result.stdout:

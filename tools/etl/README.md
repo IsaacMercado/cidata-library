@@ -50,7 +50,7 @@ uv run --project tools/etl biblioteca-etl upload --local
 ```sh
 export CLOUDFLARE_API_TOKEN=...
 export CLOUDFLARE_ACCOUNT_ID=...
-export D1_DATABASE_ID=...   # database_id de apps/web/wrangler.jsonc
+export D1_DATABASE_ID=...   # database_id de wrangler.jsonc
 uv run --project tools/etl biblioteca-etl upload --remote --method api
 ```
 
