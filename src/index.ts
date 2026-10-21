@@ -107,13 +107,14 @@ app.get("/api/libros", validate("query", listQuerySchema), async (c) => {
   }
 
   // With search: FTS5 with BM25 ranking (accent-insensitive).
+  const simpleMatch = buildSimpleMatch(q, selectedFields);
   const match =
     mode === "advanced"
       ? buildAdvancedMatch(q, selectedFields)
-      : buildSimpleMatch(q, selectedFields);
+      : simpleMatch;
   if (!match) return c.json({ error: "no_terms" }, 400);
 
-  try {
+  const runSearch = async (expression: string) => {
     const rank = sql<number>`bm25("biblioteca_fts")`;
     // Index 6 = "Texto Ficha" (virtual table column order). Control characters
     // mark the highlighted span; the client escapes the snippet and then turns
@@ -131,21 +132,33 @@ app.get("/api/libros", validate("query", listQuerySchema), async (c) => {
           sql`"biblioteca_fts"`,
           sql`"Biblioteca"."ID" = "biblioteca_fts"."rowid"`,
         )
-        .where(sql`"biblioteca_fts" MATCH ${match}`)
+        .where(sql`"biblioteca_fts" MATCH ${expression}`)
         .orderBy(order === "id" ? rank : books[order])
         .limit(limit)
         .offset(offset)
         .all(),
       db.all<{ n: number }>(
-        sql`SELECT COUNT(*) AS "n" FROM "biblioteca_fts" WHERE "biblioteca_fts" MATCH ${match}`,
+        sql`SELECT COUNT(*) AS "n" FROM "biblioteca_fts" WHERE "biblioteca_fts" MATCH ${expression}`,
       ),
     ]);
-    const total = totalRows[0]?.n ?? 0;
+    return { rows, total: totalRows[0]?.n ?? 0 };
+  };
+
+  try {
+    const result = await runSearch(match).catch(async (error) => {
+      // Advanced syntax can be temporarily invalid while the user is still
+      // typing (an open quote, a trailing AND, parentheses…). Retry with the
+      // safe word-based expression so the search box never dead-ends.
+      if (mode === "advanced" && simpleMatch && simpleMatch !== match) {
+        return runSearch(simpleMatch);
+      }
+      throw error;
+    });
     return c.json({
-      items: rows,
-      total,
+      items: result.rows,
+      total: result.total,
       page,
-      pages: Math.ceil(total / limit),
+      pages: Math.ceil(result.total / limit),
       limit,
     });
   } catch (error) {
