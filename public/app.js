@@ -87,26 +87,34 @@ export function buildForm(container, record = {}) {
   };
 }
 
-/** Render "Entrar" or "email [Salir]" in the header session slot. */
+/**
+ * Render "Entrar" or "email [Salir]" in the header session slot.
+ * Returns the signed-in email, or null when there is no active session.
+ */
 export async function updateSession() {
   const element = document.getElementById("session");
-  if (!element) return;
   try {
     const response = await fetch("/api/auth/me");
     if (!response.ok) {
-      element.innerHTML = `<a href="/login?next=${encodeURIComponent(location.pathname + location.search)}">Entrar</a>`;
-      return;
+      if (element) {
+        element.innerHTML = `<a href="/login?next=${encodeURIComponent(location.pathname + location.search)}">Entrar</a>`;
+      }
+      return null;
     }
     const { email } = await response.json();
-    element.innerHTML =
-      `<span class="usuario">${escapeHtml(email)}</span> <a href="#" id="logout-link">Salir</a>`;
-    document.getElementById("logout-link").addEventListener("click", async (event) => {
-      event.preventDefault();
-      await fetch("/api/auth/logout", { method: "POST" });
-      location.reload();
-    });
+    if (element) {
+      element.innerHTML =
+        `<span class="usuario">${escapeHtml(email)}</span> <a href="#" id="logout-link">Salir</a>`;
+      document.getElementById("logout-link").addEventListener("click", async (event) => {
+        event.preventDefault();
+        await fetch("/api/auth/logout", { method: "POST" });
+        location.reload();
+      });
+    }
+    return email;
   } catch {
-    element.innerHTML = '<a href="/login">Entrar</a>';
+    if (element) element.innerHTML = '<a href="/login">Entrar</a>';
+    return null;
   }
 }
 

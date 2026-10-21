@@ -31,12 +31,6 @@
     <details class="filtros">
       <summary>Opciones de búsqueda</summary>
       <div class="filtros-cuerpo">
-        <label class="campo-filtro">Modo
-          <select id="mode" title="Modo de búsqueda">
-            <option value="simple">Simple (palabras)</option>
-            <option value="advanced">Avanzada (FTS5)</option>
-          </select>
-        </label>
         <label class="campo-filtro">Orden
           <select id="order" title="Orden">
             <option value="id">Relevancia / ID</option>
@@ -47,7 +41,7 @@
       </div>
       <div class="campos-fts" id="fts-fields" title="Limitar la búsqueda a estos campos"></div>
     </details>
-    <p class="ayuda">Modo avanzado: frases <code>"…"</code>, <code>AND</code> / <code>OR</code> / <code>NOT</code>, prefijos <code>term*</code> y filtros <code>{Titulo Autor} : …</code>.</p>
+    <p class="ayuda">Sintaxis FTS5: frases <code>"…"</code>, <code>AND</code> / <code>OR</code> / <code>NOT</code>, prefijos <code>term*</code> y filtros <code>{Titulo Autor} : …</code>.</p>
   </section>
   <section class="tarjeta">
     <div class="info-resultados" id="results-info" aria-live="polite"></div>
@@ -121,10 +115,6 @@ function init() {
       search();
     }, 250);
   });
-  $("mode").addEventListener("change", () => {
-    page = 1;
-    search();
-  });
   $("order").addEventListener("change", () => {
     page = 1;
     search();
@@ -150,7 +140,8 @@ async function search() {
   controller = new AbortController();
   const params = new URLSearchParams({
     q: $("q").value.trim(),
-    mode: $("mode").value,
+    // The catalog always searches through FTS5 (advanced syntax allowed).
+    mode: "advanced",
     order: $("order").value,
     page: String(page),
     limit: "25",

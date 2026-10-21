@@ -26,8 +26,8 @@
     <div id="notice" class="aviso" hidden></div>
     <dl class="dl" id="record"></dl>
     <div class="acciones">
-      <a class="btn" id="edit-link" href="#">Editar</a>
-      <button class="peligro" id="delete-button" type="button">Eliminar</button>
+      <a class="btn" id="edit-link" href="#" hidden>Editar</a>
+      <button class="peligro" id="delete-button" type="button" hidden>Eliminar</button>
       <a class="btn btn-secundario" href="/">Volver a buscar</a>
     </div>
   </section>
@@ -43,7 +43,9 @@ const id = new URLSearchParams(location.search).get("id");
 const $ = (elementId) => document.getElementById(elementId);
 
 async function init() {
-  updateSession();
+  // Check the session in parallel with the record request; the write actions
+  // stay hidden until we know the user is signed in.
+  const session = updateSession();
   $("edit-link").href = "/editar?id=" + encodeURIComponent(id);
   try {
     const book = await api("/api/libros/" + encodeURIComponent(id));
@@ -54,17 +56,21 @@ async function init() {
   } catch (error) {
     showNotice("notice", error.message, true);
   }
-  $("delete-button").addEventListener("click", async () => {
-    if (!confirm(`¿Eliminar el registro ${id}?`)) return;
-    try {
-      await api("/api/libros/" + encodeURIComponent(id), { method: "DELETE" });
-      location.href = "/";
-    } catch (error) {
-      showNotice("notice", error.status === 401
-        ? "Para eliminar debes iniciar sesión."
-        : error.message, true);
-    }
-  });
+  if (await session) {
+    $("edit-link").hidden = false;
+    $("delete-button").hidden = false;
+    $("delete-button").addEventListener("click", async () => {
+      if (!confirm(`¿Eliminar el registro ${id}?`)) return;
+      try {
+        await api("/api/libros/" + encodeURIComponent(id), { method: "DELETE" });
+        location.href = "/";
+      } catch (error) {
+        showNotice("notice", error.status === 401
+          ? "Para eliminar debes iniciar sesión."
+          : error.message, true);
+      }
+    });
+  }
 }
 
 init();
